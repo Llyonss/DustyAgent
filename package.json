@@ -1,0 +1,14 @@
+{
+  "name": "dusty4",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "cli": "node src/cli/index.js",
+    "web": "node src/web/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}

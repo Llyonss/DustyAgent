@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Dusty4</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="tab-bar">
+    <div class="tab-add" onclick="createInstance()">+</div>
+  </div>
+  <div id="cost-bar"></div>
+  <div id="events"></div>
+  <div id="input-bar">
+    <input id="msg" placeholder="Type a message..." autofocus />
+    <button id="stop-btn" style="display:none">Stop</button>
+    <button id="send-btn">Send</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/styles/github-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/highlight.min.js"></script>
+
+  <script src="app.js"></script>
+</body>
+</html>
