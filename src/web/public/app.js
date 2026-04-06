@@ -284,7 +284,7 @@ function renderEvents(events) {
   const segments = [];
   let current = [];
   for (const e of events) {
-    if (e.type === 'action' && e.tool === 'apply') {
+    if (e.type === 'action' && e.tool === 'apply' && !e.error) {
       segments.push({ events: current, apply: e });
       current = [];
     } else {
