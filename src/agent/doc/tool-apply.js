@@ -45,7 +45,15 @@ Always provide "summary" describing what changed.`,
       }
 
       if (input.edits && input.edits.length > 0) {
-        // Incremental edit mode
+        // Incremental edit mode — defend against edits being a JSON string instead of array
+        if (typeof input.edits === 'string') {
+          try { input.edits = JSON.parse(input.edits); } catch (e) {
+            throw new Error('edits must be an array, got string that is not valid JSON');
+          }
+        }
+        if (!Array.isArray(input.edits)) {
+          throw new Error('edits must be an array, got ' + typeof input.edits);
+        }
         let doc;
         try {
           doc = fs.readFileSync(docPath, 'utf-8');
