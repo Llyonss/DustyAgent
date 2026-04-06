@@ -13,13 +13,22 @@ marked.setOptions({
 // ===== DOM Refs =====
 const tabBar = document.getElementById('tab-bar');
 const costBar = document.getElementById('cost-bar');
+const agentBadge = document.getElementById('agent-badge');
 const eventsDiv = document.getElementById('events');
 const msgInput = document.getElementById('msg');
 const sendBtn = document.getElementById('send-btn');
 const stopBtn = document.getElementById('stop-btn');
+const createDialog = document.getElementById('create-dialog');
+const createNameInput = document.getElementById('create-name');
+const docBtn = document.getElementById('doc-btn');
+const docDialog = document.getElementById('doc-dialog');
+const docDialogContent = document.getElementById('doc-dialog-content');
+const docCol = document.getElementById('doc-col');
+const docColContent = document.getElementById('doc-col-content');
 
 // ===== State =====
 let currentInstance = 'default';
+let currentAgent = 'default';
 let knownEventCount = 0;
 
 // ===== Pricing (per M tokens) =====
@@ -37,7 +46,6 @@ function calcCost(entry) {
   const cacheWrite = entry.cache_creation_input_tokens || 0;
 
   const cost = (Math.max(0, input) * PRICING.input + output * PRICING.output + cacheRead * PRICING.cache_read + cacheWrite * PRICING.cache_write) / 1e6;
-  // What it would cost without cache (all input at full price)
   const noCacheCost = ((entry.input_tokens || 0) * PRICING.input + output * PRICING.output) / 1e6;
   return { cost, noCacheCost, saved: noCacheCost - cost };
 }
@@ -50,8 +58,6 @@ function renderCostBar(entries) {
 
   let totalCost = 0;
   let totalNoCacheCost = 0;
-  let lastCost = 0;
-  let lastSaved = 0;
   let totalInput = 0;
   let totalOutput = 0;
   let totalCacheRead = 0;
@@ -69,18 +75,15 @@ function renderCostBar(entries) {
 
   const last = entries[entries.length - 1];
   const lastCalc = calcCost(last);
-  lastCost = lastCalc.cost;
-  lastSaved = lastCalc.saved;
-
   const totalSaved = totalNoCacheCost - totalCost;
 
   costBar.innerHTML =
-    '<span class="cost-total">Total: $' + totalCost.toFixed(4) + '</span>' +
-    '<span class="cost-saved">Saved: $' + totalSaved.toFixed(4) + '</span>' +
-    '<span class="cost-last">Last: $' + lastCost.toFixed(4) +
-    (lastSaved > 0 ? ' <span class="cost-saved-tag">-$' + lastSaved.toFixed(4) + '</span>' : '') +
+    '<span class="cost-total">累计 $' + totalCost.toFixed(4) + '</span>' +
+    '<span class="cost-saved">已省 $' + totalSaved.toFixed(4) + '</span>' +
+    '<span class="cost-last">本次 $' + lastCalc.cost.toFixed(4) +
+    (lastCalc.saved > 0 ? ' <span class="cost-saved-tag">省 $' + lastCalc.saved.toFixed(4) + '</span>' : '') +
     '</span>' +
-    '<span class="cost-tokens">' + fmtK(totalInput) + ' in / ' + fmtK(totalOutput) + ' out / ' + fmtK(totalCacheRead) + ' cache↓ / ' + fmtK(totalCacheWrite) + ' cache↑</span>';
+    '<span class="cost-tokens">输入 ' + fmtK(totalInput) + ' 输出 ' + fmtK(totalOutput) + ' 缓存 ' + fmtK(totalCacheRead) + '</span>';
 }
 
 function fmtK(n) {
@@ -95,17 +98,26 @@ function switchInstance(name) {
   knownEventCount = 0;
   eventsDiv.innerHTML = '';
   costBar.innerHTML = '';
+  agentBadge.textContent = '';
   renderTabs();
   poll();
   pollUsage();
+  pollInfo();
 }
 
 async function loadInstances() {
   try {
     const res = await fetch('/api/instances');
     const list = await res.json();
-    if (list.length === 0) list.push('default');
-    if (!list.includes(currentInstance)) list.push(currentInstance);
+    if (list.length === 0) {
+      currentInstance = 'default';
+      renderTabList([]);
+      return;
+    }
+    if (!list.includes(currentInstance)) {
+      switchInstance(list[0]);
+      return;
+    }
     renderTabList(list);
   } catch (e) { /* ignore */ }
 }
@@ -127,16 +139,99 @@ function renderTabs() {
   loadInstances();
 }
 
+// ===== Create Instance Dialog =====
 function createInstance() {
-  const name = prompt('Instance name:');
-  if (!name) return;
-  const safe = name.replace(/[^a-zA-Z0-9_-]/g, '');
-  if (!safe) return;
-  switchInstance(safe);
+  createNameInput.value = '';
+  createDialog.style.display = '';
+  createDialog.querySelector('.agent-option.selected')?.classList.remove('selected');
+  createDialog.querySelector('[data-agent="default"]').classList.add('selected');
+  createNameInput.focus();
 }
 
-// ===== Render a single event into a DOM element =====
-function renderEvent(e) {
+function closeCreateDialog() {
+  createDialog.style.display = 'none';
+}
+
+function selectAgent(el) {
+  createDialog.querySelectorAll('.agent-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+async function confirmCreate() {
+  const name = createNameInput.value.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!name) return;
+  const agent = createDialog.querySelector('.agent-option.selected')?.dataset.agent || 'default';
+  closeCreateDialog();
+
+  await fetch('/api/instances', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, agent }),
+  });
+
+  switchInstance(name);
+}
+
+// ===== Agent Info & Doc Panel =====
+function isPC() {
+  return window.innerWidth > 768;
+}
+
+async function pollInfo() {
+  try {
+    const res = await fetch('/api/instance-info?instance=' + encodeURIComponent(currentInstance));
+    const info = await res.json();
+    currentAgent = info.agent || 'default';
+    agentBadge.textContent = currentAgent === 'doc' ? '📄 doc' : '⚡ agent';
+    agentBadge.className = 'badge-' + currentAgent;
+
+    const isDoc = currentAgent === 'doc';
+    docBtn.style.display = isDoc ? '' : 'none';
+    document.body.classList.toggle('has-doc', isDoc);
+
+    if (isDoc && isPC()) {
+      docCol.style.display = '';
+      refreshDocCol();
+    } else {
+      docCol.style.display = 'none';
+    }
+  } catch (e) { /* ignore */ }
+}
+
+async function refreshDocCol() {
+  try {
+    const res = await fetch('/api/doc?instance=' + encodeURIComponent(currentInstance));
+    const data = await res.json();
+    const text = data.content != null ? data.content : '';
+    docColContent.innerHTML = text ? renderMarkdown(text) : '<p style="color:#666">（空文档）</p>';
+  } catch (e) { /* ignore */ }
+}
+
+// ===== Doc Viewer (mobile dialog) =====
+async function openDoc() {
+  if (isPC()) {
+    // On PC just refresh the side panel
+    docCol.style.display = '';
+    refreshDocCol();
+    return;
+  }
+  try {
+    const res = await fetch('/api/doc?instance=' + encodeURIComponent(currentInstance));
+    const data = await res.json();
+    const text = data.content != null ? data.content : '';
+    docDialogContent.innerHTML = text ? renderMarkdown(text) : '<p style="color:#666">（空文档）</p>';
+  } catch (e) {
+    docDialogContent.innerHTML = '<p style="color:#e94560">加载失败</p>';
+  }
+  docDialog.style.display = '';
+}
+
+function closeDoc() {
+  docDialog.style.display = 'none';
+}
+
+// ===== Render Event =====
+function renderSingleEvent(e) {
   const div = document.createElement('div');
 
   if (e.type === 'user') {
@@ -152,7 +247,13 @@ function renderEvent(e) {
     return div;
   }
 
-  if (e.type === 'action' && e.tool !== 'stop' && e.tool !== 'wait') {
+  if (e.type === 'error') {
+    div.className = 'event error';
+    div.innerHTML = '<div class="label">⚠ Error</div>' + esc(e.message || '');
+    return div;
+  }
+
+  if (e.type === 'action' && e.tool !== 'stop' && e.tool !== 'wait' && e.tool !== 'apply') {
     div.className = 'event tool';
     const inputStr = JSON.stringify(e.input);
     const outputStr = String(e.output);
@@ -163,6 +264,81 @@ function renderEvent(e) {
   }
 
   return null;
+}
+
+function renderEvents(events) {
+  eventsDiv.innerHTML = '';
+
+  const segments = [];
+  let current = [];
+  for (const e of events) {
+    if (e.type === 'action' && e.tool === 'apply') {
+      segments.push({ events: current, apply: e });
+      current = [];
+    } else {
+      current.push(e);
+    }
+  }
+  if (current.length > 0) {
+    segments.push({ events: current, apply: null });
+  }
+
+  for (const seg of segments) {
+    if (seg.apply) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'apply-section collapsed';
+
+      const summary = seg.apply.input && seg.apply.input.summary || '';
+      const header = document.createElement('div');
+      header.className = 'apply-header';
+      header.innerHTML = '<span class="apply-toggle">\u25b6</span> <span class="label">\ud83d\udcc4 文档已更新</span> <span class="apply-summary">' + esc(summary) + '</span>';
+      header.onclick = () => {
+        wrapper.classList.toggle('collapsed');
+        header.querySelector('.apply-toggle').textContent = wrapper.classList.contains('collapsed') ? '\u25b6' : '\u25bc';
+      };
+
+      const body = document.createElement('div');
+      body.className = 'apply-section-body';
+      for (const e of seg.events) {
+        const el = renderSingleEvent(e);
+        if (el) body.appendChild(el);
+      }
+      // Apply event at the end
+      const applyEl = document.createElement('div');
+      applyEl.className = 'event apply-detail';
+      const applyInput = seg.apply.input || {};
+      let applyBody = '';
+      if (applyInput.content) {
+        applyBody = renderMarkdown(applyInput.content);
+      } else if (applyInput.edits && applyInput.edits.length > 0) {
+        applyBody = '<div class="apply-edits-list">' +
+          applyInput.edits.map(e =>
+            '<div class="apply-edit-item">' +
+            '<div class="apply-edit-old">' + esc(e.old) + '</div>' +
+            '<div class="apply-edit-arrow">↓</div>' +
+            '<div class="apply-edit-new">' + esc(e.new) + '</div>' +
+            '</div>'
+          ).join('') + '</div>';
+      }
+      applyEl.innerHTML = '<div class="label">\ud83d\udcc4 apply: ' + esc(summary) + '</div>'
+        + '<div class="apply-detail-content md-content">' + applyBody + '</div>';
+      body.appendChild(applyEl);
+
+      wrapper.appendChild(header);
+      wrapper.appendChild(body);
+      eventsDiv.appendChild(wrapper);
+    } else {
+      for (const e of seg.events) {
+        const el = renderSingleEvent(e);
+        if (el) eventsDiv.appendChild(el);
+      }
+    }
+  }
+
+  // Refresh doc panel if visible
+  if (currentAgent === 'doc' && isPC() && docCol.style.display !== 'none') {
+    refreshDocCol();
+  }
 }
 
 // ===== Helpers =====
@@ -190,11 +366,8 @@ async function poll() {
     const res = await fetch('/api/events?instance=' + encodeURIComponent(currentInstance));
     const data = await res.json();
     const events = data.events;
-    if (events.length > knownEventCount) {
-      for (let i = knownEventCount; i < events.length; i++) {
-        const el = renderEvent(events[i]);
-        if (el) eventsDiv.appendChild(el);
-      }
+    if (events.length !== knownEventCount) {
+      renderEvents(events);
       knownEventCount = events.length;
       scrollToBottom();
     }
@@ -224,7 +397,13 @@ async function send() {
 
 // ===== Stop Loop =====
 async function stopLoop() {
-  await fetch('/api/loop?instance=' + encodeURIComponent(currentInstance), { method: 'DELETE' });
+  stopBtn.disabled = true;
+  try {
+    await fetch('/api/loop?instance=' + encodeURIComponent(currentInstance), { method: 'DELETE' });
+    poll();
+  } finally {
+    stopBtn.disabled = false;
+  }
 }
 
 // ===== Event Listeners =====
@@ -236,9 +415,150 @@ msgInput.addEventListener('keydown', (e) => {
     send();
   }
 });
+createNameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') confirmCreate();
+  if (e.key === 'Escape') closeCreateDialog();
+});
+
+window.addEventListener('resize', () => {
+  if (currentAgent === 'doc') {
+    docCol.style.display = isPC() ? '' : 'none';
+  }
+});
+
+// ===== File Viewer =====
+const fileDialog = document.getElementById('file-dialog');
+const filePathInput = document.getElementById('file-path-input');
+const fileDialogContent = document.getElementById('file-dialog-content');
+const fileBackBtn = document.getElementById('file-back-btn');
+let fileHistory = [];
+
+async function openFile(filePath) {
+  filePath = filePath.trim();
+  if (!filePath) return;
+  filePathInput.value = filePath;
+  fileDialog.style.display = '';
+  fileDialogContent.innerHTML = '<p style="color:#666">加载中...</p>';
+  fileBackBtn.style.display = 'none';
+  try {
+    const res = await fetch('/api/file?path=' + encodeURIComponent(filePath));
+    if (!res.ok) {
+      const err = await res.json();
+      fileDialogContent.innerHTML = '<p style="color:#e94560">' + esc(err.error || '加载失败') + '</p>';
+      return;
+    }
+    const data = await res.json();
+    renderFileContent(data);
+  } catch (e) {
+    fileDialogContent.innerHTML = '<p style="color:#e94560">加载失败</p>';
+  }
+}
+
+function renderFileContent(data) {
+  // Show back button if there's history
+  fileBackBtn.style.display = fileHistory.length > 0 ? '' : 'none';
+
+  if (data.type === 'directory') {
+    const list = document.createElement('div');
+    list.className = 'file-dir-list';
+    if (data.entries.length === 0) {
+      list.innerHTML = '<div class="file-dir-empty">（空目录）</div>';
+    }
+    for (const entry of data.entries) {
+      const item = document.createElement('div');
+      item.className = 'file-dir-item';
+      const fullPath = data.path.replace(/[\\/]$/, '') + '\\' + entry.name;
+      item.dataset.path = fullPath;
+      item.innerHTML = '<span class="file-dir-icon">' + (entry.isDirectory ? '📁' : '📄') + '</span>' +
+        '<span class="file-dir-name">' + esc(entry.name) + '</span>';
+      item.onclick = () => navigateFile(fullPath);
+      list.appendChild(item);
+    }
+    fileDialogContent.innerHTML = '';
+    fileDialogContent.appendChild(list);
+  } else {
+    const ext = data.path.split('.').pop().toLowerCase();
+    let highlighted;
+    try {
+      if (hljs.getLanguage(ext)) {
+        highlighted = hljs.highlight(data.content, { language: ext }).value;
+      } else {
+        highlighted = hljs.highlightAuto(data.content).value;
+      }
+    } catch (e) {
+      highlighted = esc(data.content);
+    }
+    const sizeStr = data.size > 1024 ? (data.size / 1024).toFixed(1) + ' KB' : data.size + ' B';
+    fileDialogContent.innerHTML =
+      '<div class="file-meta">' + esc(ext.toUpperCase()) + ' · ' + sizeStr + '</div>' +
+      '<pre class="file-code"><code>' + highlighted + '</code></pre>';
+  }
+}
+
+function navigateFile(fullPath) {
+  const currentPath = filePathInput.value.trim();
+  if (currentPath) fileHistory.push(currentPath);
+  openFile(fullPath);
+}
+
+function fileGoBack() {
+  if (fileHistory.length === 0) return;
+  const prev = fileHistory.pop();
+  openFile(prev);
+}
+
+function goFilePath() {
+  const p = filePathInput.value.trim();
+  if (!p) return;
+  fileHistory.push(p);
+  openFile(p);
+}
+
+function closeFile() {
+  fileDialog.style.display = 'none';
+  fileHistory = [];
+}
+
+filePathInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') goFilePath();
+  if (e.key === 'Escape') closeFile();
+});
+
+// ===== File Path Detection =====
+function linkifyPaths(html) {
+  // Match Windows absolute paths like C:\... or D:\...
+  // Process the HTML string and match paths outside of HTML tags
+  return html.replace(/(<[^>]*>)|([A-Z]:\\[^\s<>"'\)\]]+)/gi, (match, tag, pathStr) => {
+    if (tag) return tag; // inside an HTML tag, leave it alone
+    // Clean trailing punctuation
+    let clean = pathStr.replace(/[.,;:!?]+$/, '');
+    // Use data-path attribute + class instead of inline onclick to avoid quote escaping issues
+    return '<span class="file-link" data-path="' + escAttr(clean) + '">' + esc(clean) + '</span>' + pathStr.slice(clean.length);
+  });
+}
+
+function escAttr(s) {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Event delegation for file-link clicks
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('.file-link');
+  if (link && link.dataset.path) {
+    e.preventDefault();
+    openFile(link.dataset.path);
+  }
+});
+
+// Wrap renderMarkdown to add path linking
+const _originalRenderMarkdown = renderMarkdown;
+renderMarkdown = function(text) {
+  return linkifyPaths(_originalRenderMarkdown(text));
+};
 
 // ===== Init =====
 loadInstances();
+pollInfo();
 setInterval(poll, 300);
 setInterval(pollUsage, 2000);
 setInterval(loadInstances, 3000);

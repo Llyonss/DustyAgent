@@ -1,23 +1,23 @@
-const { getToolMap } = require('./tool');
 const { writeEvent } = require('./event');
 
-async function executeTool(name, input, ctrl) {
-  const tool = getToolMap()[name];
+async function executeTool(name, input, ctrl, tools, eventsDir) {
+  const tool = tools.find(t => t.name === name);
   if (!tool) return 'Unknown tool: ' + name;
   try {
-    return await tool.execute(input, ctrl);
+    return await tool.execute(input, ctrl, eventsDir);
   } catch (e) {
     return 'Error: ' + e.message;
   }
 }
 
-async function run(stream, eventsDir, ctrl) {
+async function run(stream, eventsDir, ctrl, tools, signal) {
   const turn = Date.now();
   const output = [];
   let usage = null;
   let hasToolCalls = false;
 
   for await (const evt of stream) {
+    if (signal && signal.aborted) break;
     if (evt.type === 'text_block') {
       output.push(evt);
       writeEvent(eventsDir, {
@@ -27,7 +27,7 @@ async function run(stream, eventsDir, ctrl) {
       });
     } else if (evt.type === 'tool_call') {
       hasToolCalls = true;
-      const result = await executeTool(evt.name, evt.input, ctrl);
+      const result = await executeTool(evt.name, evt.input, ctrl, tools, eventsDir);
       output.push({ type: 'tool_use', id: evt.id, name: evt.name, input: evt.input });
       writeEvent(eventsDir, {
         type: 'action', turn,
@@ -36,6 +36,9 @@ async function run(stream, eventsDir, ctrl) {
       });
     } else if (evt.type === 'usage') {
       usage = evt.usage;
+    } else if (evt.type === 'error') {
+      writeEvent(eventsDir, { type: 'error', message: evt.message });
+      ctrl.stop();
     }
   }
 

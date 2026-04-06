@@ -5,36 +5,54 @@ const fs = require('fs');
 const readline = require('readline');
 const { readEvents, writeEvent } = require('../core/event');
 const { loop } = require('../core/loop');
-const { writeLog } = require('../core/log');
+const createDefaultAgent = require('../agent/default');
+const createDocAgent = require('../agent/doc');
 
-const instanceDir = path.join(__dirname, '../../instances/default');
+const instanceName = process.argv[2] || 'default';
+const instanceDir = path.join(__dirname, '../../instances', instanceName);
 const eventsDir = path.join(instanceDir, 'events');
-const logDir = path.join(instanceDir, 'logs');
 fs.mkdirSync(eventsDir, { recursive: true });
+
+function createAgent(instanceDir) {
+  if (fs.existsSync(path.join(instanceDir, 'doc.md'))) {
+    return createDocAgent(instanceDir);
+  }
+  return createDefaultAgent(instanceDir);
+}
+
+const hooks = createAgent(instanceDir);
 
 function displayEvent(e) {
   if (e.type === 'user') {
     console.log('\n\x1b[36m[You]\x1b[0m ' + e.content);
+  } else if (e.type === 'error') {
+    console.log('\n\x1b[31m[Error]\x1b[0m ' + e.message);
   } else if (e.type === 'action') {
     if (e.tool === 'speak') {
       console.log('\n\x1b[32m[Assistant]\x1b[0m ' + e.output);
+    } else if (e.tool === 'apply') {
+      const summary = e.input && e.input.summary || '';
+      console.log('\n\x1b[33m[📄 Document Updated]\x1b[0m ' + summary);
     } else if (e.tool === 'stop' || e.tool === 'wait') {
       // silent
     } else {
       const inputStr = JSON.stringify(e.input);
       const outputStr = String(e.output);
-      console.log('\n\x1b[33m[' + e.tool + ']\x1b[0m ' + inputStr + '\n  \u2192 ' + outputStr);
+      console.log('\n\x1b[33m[' + e.tool + ']\x1b[0m ' + inputStr + '\n  → ' + outputStr);
     }
   }
 }
 
 async function runLoop() {
-  for await (const turn of loop({ instanceDir })) {
-    writeLog(logDir, turn);
+  for await (const turn of loop({ instanceDir, hooks })) {
   }
 }
 
 async function main() {
+  const isDoc = fs.existsSync(path.join(instanceDir, 'doc.md'));
+  console.log('\nDusty4 CLI — instance: ' + instanceName + ' [' + (isDoc ? 'doc' : 'agent') + ']');
+  console.log('Type a message or /quit to exit\n');
+
   const existing = readEvents(eventsDir);
   for (const e of existing) {
     displayEvent(e);
@@ -72,7 +90,6 @@ async function main() {
     });
   };
 
-  console.log('\nDusty4 CLI - Type a message or /quit to exit');
   prompt();
 }
 

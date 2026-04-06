@@ -17,7 +17,12 @@ function writeEvent(eventsDir, event) {
   fs.mkdirSync(eventsDir, { recursive: true });
   const ts = Date.now();
   event.ts = ts;
-  const file = path.join(eventsDir, `event.${ts}.json`);
+  let sub = 0;
+  let file;
+  do {
+    file = path.join(eventsDir, `event.${ts}.${sub}.json`);
+    sub++;
+  } while (fs.existsSync(file));
   fs.writeFileSync(file, JSON.stringify(event, null, 2));
   return ts;
 }

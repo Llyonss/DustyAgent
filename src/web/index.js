@@ -4,21 +4,31 @@ const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const { readEvents, writeEvent } = require('../core/event');
-const { writeLog } = require('../core/log');
 const { loop } = require('../core/loop');
+const createDefaultAgent = require('../agent/default');
+const createDocAgent = require('../agent/doc');
+
+function createAgent(instanceDir) {
+  if (fs.existsSync(path.join(instanceDir, 'doc.md'))) {
+    return createDocAgent(instanceDir);
+  }
+  return createDefaultAgent(instanceDir);
+}
 
 const instancesRoot = path.join(__dirname, '../../instances');
-fs.mkdirSync(instancesRoot, { recursive: true });
 
-const loops = new Map(); // instance名 → AbortController
+const loops = new Map();
 
 function resolve(name) {
   const safe = (name || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
-  const instanceDir = path.join(instancesRoot, safe || 'default');
+  const key = safe || 'default';
+  const instanceDir = path.join(instancesRoot, key);
   const eventsDir = path.join(instanceDir, 'events');
-  const logDir = path.join(instanceDir, 'logs');
+  return { key, instanceDir, eventsDir };
+}
+
+function ensureDirs({ eventsDir }) {
   fs.mkdirSync(eventsDir, { recursive: true });
-  return { key: safe || 'default', instanceDir, eventsDir, logDir };
 }
 
 const app = express();
@@ -26,11 +36,27 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/instances', (req, res) => {
-  const dirs = fs.readdirSync(instancesRoot, { withFileTypes: true })
-    .filter(d => d.isDirectory())
-    .map(d => d.name)
-    .sort();
-  res.json(dirs);
+  try {
+    const dirs = fs.readdirSync(instancesRoot, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name)
+      .sort();
+    res.json(dirs);
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+app.post('/api/instances', (req, res) => {
+  const { name, agent } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const { instanceDir, eventsDir } = resolve(name);
+  ensureDirs({ eventsDir });
+  if (agent === 'doc') {
+    const docPath = path.join(instanceDir, 'doc.md');
+    if (!fs.existsSync(docPath)) fs.writeFileSync(docPath, '');
+  }
+  res.json({ ok: true });
 });
 
 app.get('/api/events', (req, res) => {
@@ -42,18 +68,18 @@ app.post('/api/events', async (req, res) => {
   const { content } = req.body;
   if (!content) return res.status(400).json({ error: 'content required' });
 
-  const { key, instanceDir, eventsDir, logDir } = resolve(req.query.instance);
+  const { key, instanceDir, eventsDir } = resolve(req.query.instance);
+  ensureDirs({ eventsDir });
   writeEvent(eventsDir, { type: 'user', content });
   res.json({ ok: true });
 
   if (loops.has(key)) return;
 
+  const hooks = createAgent(instanceDir);
   const controller = new AbortController();
-  loops.set(key, controller);
-  (async () => {
+  const done = (async () => {
     try {
-      for await (const turn of loop({ instanceDir, signal: controller.signal })) {
-        writeLog(logDir, turn);
+      for await (const turn of loop({ instanceDir, signal: controller.signal, hooks })) {
       }
     } catch (e) {
       if (e.name !== 'AbortError') console.error('Loop error:', e.message);
@@ -61,6 +87,23 @@ app.post('/api/events', async (req, res) => {
       loops.delete(key);
     }
   })();
+  loops.set(key, { controller, done });
+});
+
+app.get('/api/instance-info', (req, res) => {
+  const { instanceDir } = resolve(req.query.instance);
+  const agent = fs.existsSync(path.join(instanceDir, 'doc.md')) ? 'doc' : 'default';
+  res.json({ agent });
+});
+
+app.get('/api/doc', (req, res) => {
+  const { instanceDir } = resolve(req.query.instance);
+  const docPath = path.join(instanceDir, 'doc.md');
+  try {
+    res.json({ content: fs.readFileSync(docPath, 'utf-8') });
+  } catch (e) {
+    res.json({ content: null });
+  }
 });
 
 app.get('/api/usage', (req, res) => {
@@ -73,14 +116,43 @@ app.get('/api/usage', (req, res) => {
   }
 });
 
-app.delete('/api/loop', (req, res) => {
+app.get('/api/file', (req, res) => {
+  const filePath = req.query.path;
+  if (!filePath) return res.status(400).json({ error: 'path required' });
+  try {
+    const stat = fs.statSync(filePath);
+    if (stat.isDirectory()) {
+      const entries = fs.readdirSync(filePath, { withFileTypes: true })
+        .map(d => ({ name: d.name, isDirectory: d.isDirectory() }))
+        .sort((a, b) => {
+          if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+      res.json({ type: 'directory', path: filePath, entries });
+    } else {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      res.json({ type: 'file', path: filePath, content, size: stat.size });
+    }
+  } catch (e) {
+    res.status(404).json({ error: e.message });
+  }
+});
+
+app.delete('/api/loop', async (req, res) => {
   const { key } = resolve(req.query.instance);
-  const controller = loops.get(key);
-  if (controller) controller.abort();
+  const entry = loops.get(key);
+  if (entry) {
+    entry.controller.abort();
+    await entry.done;
+  }
   res.json({ ok: true });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log('Dusty4 Web running at http://localhost:' + PORT);
-});
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log('Dusty4 Web running at http://localhost:' + PORT);
+  });
+}
+
+module.exports = { app, loops };

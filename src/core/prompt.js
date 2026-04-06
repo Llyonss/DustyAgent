@@ -1,24 +1,3 @@
-const os = require('os');
-const path = require('path');
-const { getToolDefinitions } = require('./tool');
-
-const SYSTEM_PROMPT = `You are a ReAct agent. You accomplish tasks by using tools.
-
-Rules:
-- Output text to communicate with the user. You can output text and call tools in the same response.
-- Call 'stop' when you have completed the task or need to wait for user input.
-- Be direct and efficient. Call multiple independent tools in parallel when possible.`;
-
-const ENV_INFO = `\nEnvironment: ${os.platform()}/${os.arch()}, shell: ${os.platform() === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/sh'}, cwd: ${process.cwd()}`;
-
-function build(events) {
-  const system = [{ type: 'text', text: SYSTEM_PROMPT + ENV_INFO, cache_control: { type: 'ephemeral' } }];
-  const messages = buildMessages(events);
-  const tools = getToolDefinitions();
-  tools[tools.length - 1].cache_control = { type: 'ephemeral' };
-  return { system, messages, tools };
-}
-
 function buildMessages(events) {
   const messages = [];
   let i = 0;
@@ -42,7 +21,6 @@ function buildMessages(events) {
         i++;
       }
 
-      // Build assistant content: text blocks for speak, tool_use for tools
       const assistantContent = [];
       const toolActions = [];
       for (const a of actions) {
@@ -56,7 +34,6 @@ function buildMessages(events) {
 
       messages.push({ role: 'assistant', content: assistantContent });
 
-      // Only add tool_results for actual tool calls (not speak)
       if (toolActions.length > 0) {
         const toolResults = toolActions.map(a => ({
           type: 'tool_result',
@@ -88,4 +65,4 @@ function buildMessages(events) {
   return messages;
 }
 
-module.exports = { build };
+module.exports = { buildMessages };

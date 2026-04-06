@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
@@ -10,12 +10,76 @@
   <div id="tab-bar">
     <div class="tab-add" onclick="createInstance()">+</div>
   </div>
-  <div id="cost-bar"></div>
-  <div id="events"></div>
-  <div id="input-bar">
-    <input id="msg" placeholder="Type a message..." autofocus />
-    <button id="stop-btn" style="display:none">Stop</button>
-    <button id="send-btn">Send</button>
+  <div id="info-bar">
+    <span id="agent-badge"></span>
+    <button id="doc-btn" style="display:none" onclick="openDoc()">📄 文档</button>
+    <span id="cost-bar"></span>
+  </div>
+  <div id="main">
+    <div id="chat-col">
+      <div id="events"></div>
+      <div id="input-bar">
+        <input id="msg" placeholder="输入消息..." autofocus />
+        <button id="stop-btn" style="display:none">停止</button>
+        <button id="send-btn">发送</button>
+      </div>
+    </div>
+    <div id="doc-col" style="display:none">
+      <div id="doc-col-header">📄 文档</div>
+      <div id="doc-col-content" class="md-content"></div>
+    </div>
+  </div>
+
+  <!-- Doc viewer dialog (mobile) -->
+  <div id="doc-dialog" style="display:none">
+    <div class="dialog-backdrop" onclick="closeDoc()"></div>
+    <div class="dialog-box dialog-wide">
+      <div class="dialog-title">📄 文档</div>
+      <div id="doc-dialog-content" class="md-content"></div>
+      <div class="dialog-buttons">
+        <button onclick="closeDoc()">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- File viewer dialog -->
+  <div id="file-dialog" style="display:none">
+    <div class="dialog-backdrop" onclick="closeFile()"></div>
+    <div class="dialog-box dialog-wide file-dialog-box">
+      <div class="file-dialog-header">
+        <span class="dialog-title" style="margin-bottom:0;flex-shrink:0">📁 文件</span>
+        <input id="file-path-input" placeholder="输入文件路径..." />
+        <button class="file-go-btn" onclick="goFilePath()">打开</button>
+      </div>
+      <div id="file-dialog-content"></div>
+      <div class="dialog-buttons">
+        <button id="file-back-btn" style="margin-right:auto;display:none" onclick="fileGoBack()">← 上级</button>
+        <button onclick="closeFile()">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create instance dialog -->
+  <div id="create-dialog" style="display:none">
+    <div class="dialog-backdrop" onclick="closeCreateDialog()"></div>
+    <div class="dialog-box">
+      <div class="dialog-title">新建实例</div>
+      <input id="create-name" placeholder="实例名称" />
+      <div class="dialog-agents">
+        <div class="agent-option selected" data-agent="default" onclick="selectAgent(this)">
+          <div class="agent-name">Agent</div>
+          <div class="agent-desc">通用 ReAct 智能体</div>
+        </div>
+        <div class="agent-option" data-agent="doc" onclick="selectAgent(this)">
+          <div class="agent-name">Document</div>
+          <div class="agent-desc">专注于创作和修订文档</div>
+        </div>
+      </div>
+      <div class="dialog-buttons">
+        <button onclick="closeCreateDialog()">取消</button>
+        <button class="primary" onclick="confirmCreate()">创建</button>
+      </div>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>

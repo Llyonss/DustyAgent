@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "cli": "node src/cli/index.js",
-    "web": "node src/web/index.js"
+    "web": "node src/web/index.js",
+    "test": "node --test src/tests/test-event.js src/tests/test-prompt.js src/tests/test-action.js src/tests/test-infer.js src/tests/test-loop.js src/tests/test-web-abort.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
