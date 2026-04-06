@@ -50,14 +50,23 @@ async function* infer(prompt, { signal } = {}) {
           inputJson += event.delta.partial_json;
         }
       } else if (event.type === 'content_block_stop') {
-        if (currentBlock && currentBlock.type === 'text' && textContent) {
-          yield { type: 'text_block', text: textContent };
+        if (currentBlock && currentBlock.type === 'text') {
+          if (textContent) yield { type: 'text_block', text: textContent };
         } else if (currentBlock && currentBlock.type === 'tool_use') {
+          let parsedInput = {};
+          if (inputJson) {
+            try { parsedInput = JSON.parse(inputJson); }
+            catch (pe) {
+              yield { type: 'error', message: 'JSON parse error in tool input: ' + pe.message };
+              currentBlock = null;
+              continue;
+            }
+          }
           yield {
             type: 'tool_call',
             id: currentBlock.id,
             name: currentBlock.name,
-            input: inputJson ? JSON.parse(inputJson) : {},
+            input: parsedInput,
           };
         }
         currentBlock = null;

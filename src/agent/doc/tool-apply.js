@@ -50,17 +50,17 @@ Always provide "summary" describing what changed.`,
         try {
           doc = fs.readFileSync(docPath, 'utf-8');
         } catch (e) {
-          return 'Error: cannot read document for editing: ' + e.message;
+          throw new Error('cannot read document for editing: ' + e.message);
         }
         for (const edit of input.edits) {
           if (!doc.includes(edit.old)) {
             const snippet = edit.old.length > 200 ? edit.old.substring(0, 200) + '...' : edit.old;
-            return 'Error: text not found in document: "' + snippet + '"';
+            throw new Error('text not found in document: "' + snippet + '"');
           }
           const matches = doc.split(edit.old).length - 1;
           if (matches > 1) {
             const snippet = edit.old.length > 200 ? edit.old.substring(0, 200) + '...' : edit.old;
-            return 'Error: found ' + matches + ' matches in document. Provide more context to uniquely identify the target: "' + snippet + '"';
+            throw new Error('found ' + matches + ' matches in document. Provide more context to uniquely identify the target: "' + snippet + '"');
           }
           doc = doc.replace(edit.old, edit.new);
         }
@@ -69,7 +69,7 @@ Always provide "summary" describing what changed.`,
         return 'Document updated (incremental edit, ' + input.edits.length + ' replacements): ' + input.summary;
       }
 
-      return 'Error: provide either "content" (full rewrite) or "edits" (incremental edit)';
+      throw new Error('provide either "content" (full rewrite) or "edits" (incremental edit)');
     },
   };
 };

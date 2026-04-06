@@ -394,16 +394,86 @@ describe('infer', () => {
       {}
     ));
 
-    // JSON.parse fails inside the try block, caught and yielded as error
+    // JSON.parse fails — yields error for that block but continues the stream
     const errors = items.filter(i => i.type === 'error');
     assert.strictEqual(errors.length, 1);
     assert.ok(errors[0].message.includes('JSON'), `Expected JSON parse error, got: ${errors[0].message}`);
-    // Should NOT yield a tool_call
+    // Should NOT yield a tool_call for the bad block
     const toolCalls = items.filter(i => i.type === 'tool_call');
     assert.strictEqual(toolCalls.length, 0);
-    // Should NOT yield usage (error causes early return)
+    // Should still yield usage (stream continues after bad block)
     const usages = items.filter(i => i.type === 'usage');
-    assert.strictEqual(usages.length, 0);
+    assert.strictEqual(usages.length, 1);
+  });
+
+  it('yields only usage when API returns empty content (no content blocks)', async () => {
+    serverHandler = (_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      const chunks = [];
+      chunks.push(sseEvent({
+        type: 'message_start',
+        message: { id: 'msg_test', type: 'message', role: 'assistant', content: [], model: 'test-model', usage: { input_tokens: 100, output_tokens: 0 } },
+      }));
+      chunks.push(sseEvent({
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn' },
+        usage: { output_tokens: 1 },
+      }));
+      chunks.push(sseEvent({ type: 'message_stop' }));
+      res.end(chunks.join(''));
+    };
+
+    const infer = getInfer();
+    const items = await collect(infer(
+      { messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] },
+      {}
+    ));
+
+    // No text_block or tool_call — only usage
+    const textBlocks = items.filter(i => i.type === 'text_block');
+    const toolCalls = items.filter(i => i.type === 'tool_call');
+    assert.strictEqual(textBlocks.length, 0);
+    assert.strictEqual(toolCalls.length, 0);
+    const usages = items.filter(i => i.type === 'usage');
+    assert.strictEqual(usages.length, 1);
+    assert.strictEqual(usages[0].usage.output_tokens, 1);
+  });
+
+  it('JSON parse error in tool input skips bad block but continues stream', async () => {
+    serverHandler = (_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      const chunks = [];
+      chunks.push(sseEvent({
+        type: 'message_start',
+        message: { id: 'msg_test', type: 'message', role: 'assistant', content: [], model: 'test-model', usage: { input_tokens: 50, output_tokens: 0 } },
+      }));
+      // Bad tool block
+      chunks.push(sseEvent({ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'tc_bad', name: 'cmd', input: {} } }));
+      chunks.push(sseEvent({ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{invalid' } }));
+      chunks.push(sseEvent({ type: 'content_block_stop', index: 0 }));
+      // Good text block after
+      chunks.push(sseEvent({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } }));
+      chunks.push(sseEvent({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'recovered' } }));
+      chunks.push(sseEvent({ type: 'content_block_stop', index: 1 }));
+      chunks.push(sseEvent({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 10 } }));
+      chunks.push(sseEvent({ type: 'message_stop' }));
+      res.end(chunks.join(''));
+    };
+
+    const infer = getInfer();
+    const items = await collect(infer(
+      { messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] },
+      {}
+    ));
+
+    // Error for bad block, then text_block for good block, then usage
+    const errors = items.filter(i => i.type === 'error');
+    assert.strictEqual(errors.length, 1);
+    const textBlocks = items.filter(i => i.type === 'text_block');
+    assert.strictEqual(textBlocks.length, 1);
+    assert.strictEqual(textBlocks[0].text, 'recovered');
+    const usages = items.filter(i => i.type === 'usage');
+    assert.strictEqual(usages.length, 1);
   });
 
   it('sends correct request body to API', async () => {

@@ -2,11 +2,12 @@ const { writeEvent } = require('./event');
 
 async function executeTool(name, input, ctrl, tools, eventsDir) {
   const tool = tools.find(t => t.name === name);
-  if (!tool) return 'Unknown tool: ' + name;
+  if (!tool) return { output: 'Unknown tool: ' + name, error: true };
   try {
-    return await tool.execute(input, ctrl, eventsDir);
+    const output = await tool.execute(input, ctrl, eventsDir);
+    return { output, error: false };
   } catch (e) {
-    return 'Error: ' + e.message;
+    return { output: 'Error: ' + e.message, error: true };
   }
 }
 
@@ -32,7 +33,8 @@ async function run(stream, eventsDir, ctrl, tools, signal) {
       writeEvent(eventsDir, {
         type: 'action', turn,
         tool: evt.name, toolUseId: evt.id,
-        input: evt.input, output: result,
+        input: evt.input, output: result.output,
+        ...(result.error ? { error: true } : {}),
       });
     } else if (evt.type === 'usage') {
       usage = evt.usage;
@@ -43,6 +45,9 @@ async function run(stream, eventsDir, ctrl, tools, signal) {
   }
 
   if (!hasToolCalls) {
+    if (output.length === 0 && usage) {
+      writeEvent(eventsDir, { type: 'error', message: 'Empty response from API' });
+    }
     ctrl.stop();
   }
 

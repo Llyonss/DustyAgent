@@ -253,6 +253,12 @@ function renderSingleEvent(e) {
     return div;
   }
 
+  if (e.type === 'action' && e.error) {
+    div.className = 'event error';
+    div.innerHTML = '<div class="label">⚠ ' + esc(e.tool) + '</div>' + esc(e.output || '');
+    return div;
+  }
+
   if (e.type === 'action' && e.tool !== 'stop' && e.tool !== 'wait' && e.tool !== 'apply') {
     div.className = 'event tool';
     const inputStr = JSON.stringify(e.input);
@@ -267,6 +273,12 @@ function renderSingleEvent(e) {
 }
 
 function renderEvents(events) {
+  // Remember which apply sections were expanded before re-render
+  const expandedSet = new Set();
+  eventsDiv.querySelectorAll('.apply-section').forEach((el, i) => {
+    if (!el.classList.contains('collapsed')) expandedSet.add(i);
+  });
+
   eventsDiv.innerHTML = '';
 
   const segments = [];
@@ -283,15 +295,18 @@ function renderEvents(events) {
     segments.push({ events: current, apply: null });
   }
 
+  let applyIndex = 0;
   for (const seg of segments) {
     if (seg.apply) {
+      const isExpanded = expandedSet.has(applyIndex);
+      applyIndex++;
       const wrapper = document.createElement('div');
-      wrapper.className = 'apply-section collapsed';
+      wrapper.className = 'apply-section' + (isExpanded ? '' : ' collapsed');
 
       const summary = seg.apply.input && seg.apply.input.summary || '';
       const header = document.createElement('div');
       header.className = 'apply-header';
-      header.innerHTML = '<span class="apply-toggle">\u25b6</span> <span class="label">\ud83d\udcc4 文档已更新</span> <span class="apply-summary">' + esc(summary) + '</span>';
+      header.innerHTML = '<span class="apply-toggle">' + (isExpanded ? '\u25bc' : '\u25b6') + '</span> <span class="label">\ud83d\udcc4 文档已更新</span> <span class="apply-summary">' + esc(summary) + '</span>';
       header.onclick = () => {
         wrapper.classList.toggle('collapsed');
         header.querySelector('.apply-toggle').textContent = wrapper.classList.contains('collapsed') ? '\u25b6' : '\u25bc';

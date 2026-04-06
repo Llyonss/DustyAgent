@@ -100,6 +100,7 @@ describe('run', () => {
     assert.strictEqual(events[0].output, 'Hello, Alice!');
     assert.deepStrictEqual(events[0].input, { name: 'Alice' });
     assert.strictEqual(events[0].toolUseId, 'tc_1');
+    assert.strictEqual(events[0].error, undefined);
   });
 
   it('returns "Unknown tool" for unregistered tool', async () => {
@@ -112,6 +113,7 @@ describe('run', () => {
 
     const events = readEvents(eventsDir);
     assert.strictEqual(events[0].output, 'Unknown tool: nonexistent');
+    assert.strictEqual(events[0].error, true);
   });
 
   it('catches tool execution errors', async () => {
@@ -128,6 +130,7 @@ describe('run', () => {
 
     const events = readEvents(eventsDir);
     assert.strictEqual(events[0].output, 'Error: boom');
+    assert.strictEqual(events[0].error, true);
   });
 
   it('handles error event — writes error and stops', async () => {
@@ -228,5 +231,22 @@ describe('run', () => {
     assert.ok(executed.includes('first'), 'First tool should have executed');
     assert.ok(!executed.includes('second'), 'Second tool should NOT have executed after abort');
     assert.strictEqual(output.length, 1, 'Only the first tool_use should be in output');
+  });
+
+  it('empty response (only usage, no content) writes error event', async () => {
+    const stream = streamFrom([
+      { type: 'usage', usage: { input_tokens: 100, output_tokens: 1 } },
+    ]);
+
+    const { output, usage } = await run(stream, eventsDir, ctrl, []);
+
+    assert.strictEqual(output.length, 0);
+    assert.ok(stopped, 'ctrl.stop() should be called');
+    assert.deepStrictEqual(usage, { input_tokens: 100, output_tokens: 1 });
+
+    const events = readEvents(eventsDir);
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].type, 'error');
+    assert.strictEqual(events[0].message, 'Empty response from API');
   });
 });

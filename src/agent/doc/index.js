@@ -28,7 +28,7 @@ module.exports = function(instanceDir) {
     events: (events) => {
       let lastApply = -1;
       for (let i = events.length - 1; i >= 0; i--) {
-        if (events[i].type === 'action' && events[i].tool === 'apply') {
+        if (events[i].type === 'action' && events[i].tool === 'apply' && !events[i].error) {
           lastApply = i;
           break;
         }
@@ -38,7 +38,7 @@ module.exports = function(instanceDir) {
 
     messages: (messages) => {
       const allEvents = readEvents(eventsDir);
-      const applies = allEvents.filter(e => e.type === 'action' && e.tool === 'apply');
+      const applies = allEvents.filter(e => e.type === 'action' && e.tool === 'apply' && !e.error);
       const doc = readDoc();
       const prefix = [];
 

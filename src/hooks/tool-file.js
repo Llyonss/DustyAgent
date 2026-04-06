@@ -76,26 +76,24 @@ Usage:
       required: ['path'],
     },
     execute: async (input) => {
-      try {
-        const content = fs.readFileSync(input.path, 'utf-8');
-        const allLines = content.split('\n');
-        const totalLines = allLines.length;
-        const offset = Math.max(1, input.offset || 1);
-        const startIdx = offset - 1;
+      const content = fs.readFileSync(input.path, 'utf-8');
+      const allLines = content.split('\n');
+      const totalLines = allLines.length;
+      const offset = Math.max(1, input.offset || 1);
+      const startIdx = offset - 1;
 
-        let lines;
-        if (input.limit) {
-          lines = allLines.slice(startIdx, startIdx + input.limit);
-        } else {
-          lines = allLines.slice(startIdx);
-        }
+      let lines;
+      if (input.limit) {
+        lines = allLines.slice(startIdx, startIdx + input.limit);
+      } else {
+        lines = allLines.slice(startIdx);
+      }
 
-        const numbered = addLineNumbers(lines.join('\n'), offset);
-        const endLine = offset + lines.length - 1;
-        const mtime = Math.floor(fs.statSync(input.path).mtimeMs);
+      const numbered = addLineNumbers(lines.join('\n'), offset);
+      const endLine = offset + lines.length - 1;
+      const mtime = Math.floor(fs.statSync(input.path).mtimeMs);
 
-        return truncate(numbered + `\n[File: ${input.path} | Lines: ${offset}-${endLine}/${totalLines} | Modified: ${mtime}]`);
-      } catch (e) { return `Error: ${e.message}`; }
+      return truncate(numbered + `\n[File: ${input.path} | Lines: ${offset}-${endLine}/${totalLines} | Modified: ${mtime}]`);
     },
   },
   {
@@ -116,13 +114,11 @@ Usage:
       required: ['path', 'content'],
     },
     execute: async (input, ctrl, eventsDir) => {
-      try {
-        const guard = checkReadGuard(input.path, eventsDir);
-        if (guard) return guard;
-        fs.mkdirSync(path.dirname(input.path), { recursive: true });
-        fs.writeFileSync(input.path, input.content);
-        return 'File written successfully.';
-      } catch (e) { return `Error: ${e.message}`; }
+      const guard = checkReadGuard(input.path, eventsDir);
+      if (guard) throw new Error(guard);
+      fs.mkdirSync(path.dirname(input.path), { recursive: true });
+      fs.writeFileSync(input.path, input.content);
+      return 'File written successfully.';
     },
   },
   {
@@ -155,25 +151,23 @@ Usage:
       required: ['path', 'edits'],
     },
     execute: async (input, ctrl, eventsDir) => {
-      try {
-        const guard = checkReadGuard(input.path, eventsDir);
-        if (guard) return guard;
-        let content = fs.readFileSync(input.path, 'utf-8');
-        for (const edit of input.edits) {
-          if (!content.includes(edit.old)) {
-            const snippet = edit.old.length > 200 ? edit.old.substring(0, 200) + '...' : edit.old;
-            const totalLines = content.split('\n').length;
-            return `Error: text not found in file (${totalLines} lines). String: "${snippet}"`;
-          }
-          const matches = content.split(edit.old).length - 1;
-          if (matches > 1) {
-            return `Error: found ${matches} matches of the string to replace. Provide more surrounding context to uniquely identify the target. String: "${edit.old.length > 200 ? edit.old.substring(0, 200) + '...' : edit.old}"`;
-          }
-          content = content.replace(edit.old, edit.new);
+      const guard = checkReadGuard(input.path, eventsDir);
+      if (guard) throw new Error(guard);
+      let content = fs.readFileSync(input.path, 'utf-8');
+      for (const edit of input.edits) {
+        if (!content.includes(edit.old)) {
+          const snippet = edit.old.length > 200 ? edit.old.substring(0, 200) + '...' : edit.old;
+          const totalLines = content.split('\n').length;
+          throw new Error(`text not found in file (${totalLines} lines). String: "${snippet}"`);
         }
-        fs.writeFileSync(input.path, content);
-        return 'File edited successfully.';
-      } catch (e) { return `Error: ${e.message}`; }
+        const matches = content.split(edit.old).length - 1;
+        if (matches > 1) {
+          throw new Error(`found ${matches} matches of the string to replace. Provide more surrounding context to uniquely identify the target. String: "${edit.old.length > 200 ? edit.old.substring(0, 200) + '...' : edit.old}"`);
+        }
+        content = content.replace(edit.old, edit.new);
+      }
+      fs.writeFileSync(input.path, content);
+      return 'File edited successfully.';
     },
   },
 ];
