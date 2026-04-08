@@ -2,82 +2,76 @@ const fs = require('fs');
 const path = require('path');
 
 module.exports = function(docPath) {
-  return {
-    name: 'apply',
-    description: `Update the document. Two modes (provide ONE of content or edits, not both):
-
-1. Full rewrite — provide "content" with the complete new document.
-   Use only when creating the document for the first time or rewriting most of it.
-
-2. Incremental edit — provide "edits" with an array of {old, new} replacements.
-   Use for most updates. "old" must be an EXACT substring of the current document (copy-paste precision). Each replacement is applied in order.
-   Prefer this mode — it is faster, cheaper, and less error-prone.
-
-Always provide "summary" describing what changed.`,
-    input_schema: {
-      type: 'object',
-      properties: {
-        summary: { type: 'string', description: 'Brief summary of changes' },
-        content: { type: 'string', description: 'Complete new document content (full rewrite mode)' },
-        edits: {
-          type: 'array',
-          description: 'Array of replacements (incremental edit mode)',
-          items: {
-            type: 'object',
-            properties: {
-              old: { type: 'string', description: 'Exact substring to find in current document' },
-              new: { type: 'string', description: 'Replacement text' },
-            },
-            required: ['old', 'new'],
-          },
+  return [
+    {
+      name: 'apply',
+      description: `Full rewrite of the document. Provide "content" with the complete new document.
+Use only when creating the document for the first time or rewriting most of it.
+After writing, call commit to record the version.`,
+      input_schema: {
+        type: 'object',
+        properties: {
+          content: { type: 'string', description: 'Complete new document content' },
         },
+        required: ['content'],
       },
-      required: ['summary'],
-    },
-    execute: async (input, ctrl) => {
-      fs.mkdirSync(path.dirname(docPath), { recursive: true });
-
-      if (input.content != null) {
-        // Full rewrite mode
+      execute: async (input) => {
+        fs.mkdirSync(path.dirname(docPath), { recursive: true });
         fs.writeFileSync(docPath, input.content);
-        ctrl.stop();
-        return 'Document updated (full rewrite): ' + input.summary;
-      }
-
-      if (input.edits && input.edits.length > 0) {
-        // Incremental edit mode — defend against edits being a JSON string instead of array
-        if (typeof input.edits === 'string') {
-          try { input.edits = JSON.parse(input.edits); } catch (e) {
-            throw new Error('edits must be an array, got string that is not valid JSON');
-          }
-        }
-        if (!Array.isArray(input.edits)) {
-          throw new Error('edits must be an array, got ' + typeof input.edits);
-        }
+        return 'Document written (full rewrite). Call commit when done.';
+      },
+    },
+    {
+      name: 'patch',
+      description: `Incremental edit of the document. Provide "old" (exact substring) and "new" (replacement).
+"old" must be an EXACT substring of the current document (copy-paste precision).
+The patch will FAIL if "old" matches more than one location. Provide more context to make it unique.
+After patching, call commit to record the version.`,
+      input_schema: {
+        type: 'object',
+        properties: {
+          old: { type: 'string', description: 'Exact substring to find in current document' },
+          new: { type: 'string', description: 'Replacement text' },
+        },
+        required: ['old', 'new'],
+      },
+      execute: async (input) => {
         let doc;
         try {
           doc = fs.readFileSync(docPath, 'utf-8');
         } catch (e) {
-          throw new Error('cannot read document for editing: ' + e.message);
+          throw new Error('cannot read document for patching: ' + e.message);
         }
-        for (const edit of input.edits) {
-          if (!doc.includes(edit.old)) {
-            const snippet = edit.old.length > 200 ? edit.old.substring(0, 200) + '...' : edit.old;
-            throw new Error('text not found in document: "' + snippet + '"');
-          }
-          const matches = doc.split(edit.old).length - 1;
-          if (matches > 1) {
-            const snippet = edit.old.length > 200 ? edit.old.substring(0, 200) + '...' : edit.old;
-            throw new Error('found ' + matches + ' matches in document. Provide more context to uniquely identify the target: "' + snippet + '"');
-          }
-          doc = doc.replace(edit.old, edit.new);
+        if (!doc.includes(input.old)) {
+          const snippet = input.old.length > 200 ? input.old.substring(0, 200) + '...' : input.old;
+          throw new Error('text not found in document: "' + snippet + '"');
         }
+        const matches = doc.split(input.old).length - 1;
+        if (matches > 1) {
+          const snippet = input.old.length > 200 ? input.old.substring(0, 200) + '...' : input.old;
+          throw new Error('found ' + matches + ' matches in document. Provide more context to uniquely identify the target: "' + snippet + '"');
+        }
+        doc = doc.replace(input.old, input.new);
         fs.writeFileSync(docPath, doc);
-        ctrl.stop();
-        return 'Document updated (incremental edit, ' + input.edits.length + ' replacements): ' + input.summary;
-      }
-
-      throw new Error('provide either "content" (full rewrite) or "edits" (incremental edit)');
+        return 'Document patched. Call commit when done.';
+      },
     },
-  };
+    {
+      name: 'commit',
+      description: `Commit the current document version. Provide "summary" describing what changed in this version.
+This stops the current loop. The summary will appear in version history.
+Call this after you have finished all apply/patch operations for this version.`,
+      input_schema: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string', description: 'Brief summary of changes in this version' },
+        },
+        required: ['summary'],
+      },
+      execute: async (input, ctrl) => {
+        ctrl.stop();
+        return 'Version committed: ' + input.summary;
+      },
+    },
+  ];
 };

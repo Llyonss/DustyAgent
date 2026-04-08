@@ -30,6 +30,7 @@ const docColContent = document.getElementById('doc-col-content');
 let currentInstance = 'default';
 let currentAgent = 'default';
 let knownEventCount = 0;
+let knownLastOutput = '';  // track last event output for streaming detection
 
 // ===== Pricing (per M tokens) =====
 const PRICING = {
@@ -96,6 +97,7 @@ function fmtK(n) {
 function switchInstance(name) {
   currentInstance = name;
   knownEventCount = 0;
+  knownLastOutput = '';
   eventsDiv.innerHTML = '';
   costBar.innerHTML = '';
   agentBadge.textContent = '';
@@ -249,7 +251,8 @@ function renderSingleEvent(e) {
 
   if (e.type === 'error') {
     div.className = 'event error';
-    div.innerHTML = '<div class="label">⚠ Error</div>' + esc(e.message || '');
+    div.innerHTML = '<div class="label">⚠ Error</div>' + esc(e.message || '')
+      + '<button class="retry-btn" onclick="retry()">重试</button>';
     return div;
   }
 
@@ -259,7 +262,7 @@ function renderSingleEvent(e) {
     return div;
   }
 
-  if (e.type === 'action' && e.tool !== 'stop' && e.tool !== 'wait' && e.tool !== 'apply') {
+  if (e.type === 'action' && e.tool !== 'stop' && e.tool !== 'wait' && e.tool !== 'commit') {
     div.className = 'event tool';
     const inputStr = JSON.stringify(e.input);
     const outputStr = String(e.output);
@@ -273,7 +276,7 @@ function renderSingleEvent(e) {
 }
 
 function renderEvents(events) {
-  // Remember which apply sections were expanded before re-render
+  // Remember which commit sections were expanded before re-render
   const expandedSet = new Set();
   eventsDiv.querySelectorAll('.apply-section').forEach((el, i) => {
     if (!el.classList.contains('collapsed')) expandedSet.add(i);
@@ -284,29 +287,29 @@ function renderEvents(events) {
   const segments = [];
   let current = [];
   for (const e of events) {
-    if (e.type === 'action' && e.tool === 'apply' && !e.error) {
-      segments.push({ events: current, apply: e });
+    if (e.type === 'action' && e.tool === 'commit' && !e.error) {
+      segments.push({ events: current, commit: e });
       current = [];
     } else {
       current.push(e);
     }
   }
   if (current.length > 0) {
-    segments.push({ events: current, apply: null });
+    segments.push({ events: current, commit: null });
   }
 
-  let applyIndex = 0;
+  let commitIndex = 0;
   for (const seg of segments) {
-    if (seg.apply) {
-      const isExpanded = expandedSet.has(applyIndex);
-      applyIndex++;
+    if (seg.commit) {
+      const isExpanded = expandedSet.has(commitIndex);
+      commitIndex++;
       const wrapper = document.createElement('div');
       wrapper.className = 'apply-section' + (isExpanded ? '' : ' collapsed');
 
-      const summary = seg.apply.input && seg.apply.input.summary || '';
+      const summary = seg.commit.input && seg.commit.input.summary || '';
       const header = document.createElement('div');
       header.className = 'apply-header';
-      header.innerHTML = '<span class="apply-toggle">' + (isExpanded ? '\u25bc' : '\u25b6') + '</span> <span class="label">\ud83d\udcc4 文档已更新</span> <span class="apply-summary">' + esc(summary) + '</span>';
+      header.innerHTML = '<span class="apply-toggle">' + (isExpanded ? '\u25bc' : '\u25b6') + '</span> <span class="label">\ud83d\udcc4 \u6587\u6863\u5df2\u63d0\u4ea4</span> <span class="apply-summary">' + esc(summary) + '</span>';
       header.onclick = () => {
         wrapper.classList.toggle('collapsed');
         header.querySelector('.apply-toggle').textContent = wrapper.classList.contains('collapsed') ? '\u25b6' : '\u25bc';
@@ -318,26 +321,6 @@ function renderEvents(events) {
         const el = renderSingleEvent(e);
         if (el) body.appendChild(el);
       }
-      // Apply event at the end
-      const applyEl = document.createElement('div');
-      applyEl.className = 'event apply-detail';
-      const applyInput = seg.apply.input || {};
-      let applyBody = '';
-      if (applyInput.content) {
-        applyBody = renderMarkdown(applyInput.content);
-      } else if (applyInput.edits && applyInput.edits.length > 0) {
-        applyBody = '<div class="apply-edits-list">' +
-          applyInput.edits.map(e =>
-            '<div class="apply-edit-item">' +
-            '<div class="apply-edit-old">' + esc(e.old) + '</div>' +
-            '<div class="apply-edit-arrow">↓</div>' +
-            '<div class="apply-edit-new">' + esc(e.new) + '</div>' +
-            '</div>'
-          ).join('') + '</div>';
-      }
-      applyEl.innerHTML = '<div class="label">\ud83d\udcc4 apply: ' + esc(summary) + '</div>'
-        + '<div class="apply-detail-content md-content">' + applyBody + '</div>';
-      body.appendChild(applyEl);
 
       wrapper.appendChild(header);
       wrapper.appendChild(body);
@@ -376,14 +359,38 @@ function scrollToBottom() {
 }
 
 // ===== Polling =====
+function getLastOutput(events) {
+  if (events.length === 0) return '';
+  const last = events[events.length - 1];
+  return String(last.output || last.content || last.message || '');
+}
+
 async function poll() {
   try {
     const res = await fetch('/api/events?instance=' + encodeURIComponent(currentInstance));
     const data = await res.json();
     const events = data.events;
+    const lastOutput = getLastOutput(events);
+
     if (events.length !== knownEventCount) {
+      // Event count changed — full re-render
       renderEvents(events);
       knownEventCount = events.length;
+      knownLastOutput = lastOutput;
+      scrollToBottom();
+    } else if (lastOutput !== knownLastOutput) {
+      // Same count but last event content changed (streaming speak)
+      // Update only the last speak element in-place
+      knownLastOutput = lastOutput;
+      const last = events[events.length - 1];
+      if (last && last.type === 'action' && last.tool === 'speak') {
+        const speakEls = eventsDiv.querySelectorAll('.event.speak');
+        const lastSpeakEl = speakEls[speakEls.length - 1];
+        if (lastSpeakEl) {
+          const mdDiv = lastSpeakEl.querySelector('.md-content');
+          if (mdDiv) mdDiv.innerHTML = renderMarkdown(last.output);
+        }
+      }
       scrollToBottom();
     }
     stopBtn.style.display = data.running ? '' : 'none';
@@ -410,6 +417,15 @@ async function send() {
   });
 }
 
+// ===== Retry (restart loop without new message) =====
+async function retry() {
+  await fetch('/api/events?instance=' + encodeURIComponent(currentInstance), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+}
+
 // ===== Stop Loop =====
 async function stopLoop() {
   stopBtn.disabled = true;
@@ -425,7 +441,7 @@ async function stopLoop() {
 sendBtn.addEventListener('click', send);
 stopBtn.addEventListener('click', stopLoop);
 msgInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
+  if (e.key === 'Enter' && e.ctrlKey) {
     e.preventDefault();
     send();
   }

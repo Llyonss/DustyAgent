@@ -24,7 +24,7 @@ function writeEvent(eventsDir, event) {
     sub++;
   } while (fs.existsSync(file));
   fs.writeFileSync(file, JSON.stringify(event, null, 2));
-  return ts;
+  return { ts, file };
 }
 
 module.exports = { readEvents, writeEvent };

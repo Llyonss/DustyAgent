@@ -1,3 +1,4 @@
+const fs = require('fs');
 const { writeEvent } = require('./event');
 
 async function executeTool(name, input, ctrl, tools, eventsDir) {
@@ -14,18 +15,50 @@ async function executeTool(name, input, ctrl, tools, eventsDir) {
 async function run(stream, eventsDir, ctrl, tools, signal) {
   const turn = Date.now();
   const output = [];
+  const errors = [];
   let usage = null;
   let hasToolCalls = false;
 
+  // Track streaming speak event
+  let speakFile = null;
+  let speakText = '';
+
   for await (const evt of stream) {
     if (signal && signal.aborted) break;
-    if (evt.type === 'text_block') {
+
+    if (evt.type === 'text_delta') {
+      speakText += evt.text;
+      if (!speakFile) {
+        // Create the speak event file
+        const result = writeEvent(eventsDir, {
+          type: 'action', turn,
+          tool: 'speak', toolUseId: 'text_' + Date.now(),
+          input: {}, output: speakText,
+        });
+        speakFile = result.file;
+      } else {
+        // Update existing speak event file in-place
+        const event = JSON.parse(fs.readFileSync(speakFile, 'utf-8'));
+        event.output = speakText;
+        fs.writeFileSync(speakFile, JSON.stringify(event, null, 2));
+      }
+    } else if (evt.type === 'text_block') {
+      // Final text — ensure the speak event has the complete text
+      if (speakFile) {
+        const event = JSON.parse(fs.readFileSync(speakFile, 'utf-8'));
+        event.output = evt.text;
+        fs.writeFileSync(speakFile, JSON.stringify(event, null, 2));
+      } else if (evt.text) {
+        writeEvent(eventsDir, {
+          type: 'action', turn,
+          tool: 'speak', toolUseId: 'text_' + Date.now(),
+          input: {}, output: evt.text,
+        });
+      }
       output.push(evt);
-      writeEvent(eventsDir, {
-        type: 'action', turn,
-        tool: 'speak', toolUseId: 'text_' + Date.now(),
-        input: {}, output: evt.text,
-      });
+      // Reset for next text block
+      speakFile = null;
+      speakText = '';
     } else if (evt.type === 'tool_call') {
       hasToolCalls = true;
       const result = await executeTool(evt.name, evt.input, ctrl, tools, eventsDir);
@@ -39,6 +72,8 @@ async function run(stream, eventsDir, ctrl, tools, signal) {
     } else if (evt.type === 'usage') {
       usage = evt.usage;
     } else if (evt.type === 'error') {
+      errors.push(evt.message);
+      console.error('Error:', evt.message);
       writeEvent(eventsDir, { type: 'error', message: evt.message });
       ctrl.stop();
     }
@@ -46,12 +81,15 @@ async function run(stream, eventsDir, ctrl, tools, signal) {
 
   if (!hasToolCalls) {
     if (output.length === 0 && usage) {
-      writeEvent(eventsDir, { type: 'error', message: 'Empty response from API' });
+      const msg = 'Empty response from API';
+      errors.push(msg);
+      console.error('Error:', msg);
+      writeEvent(eventsDir, { type: 'error', message: msg });
     }
     ctrl.stop();
   }
 
-  return { output, usage };
+  return { output, usage, errors };
 }
 
 module.exports = { run };

@@ -222,6 +222,24 @@ body {
 
 .event.error .label { color: #f7768e; }
 
+.retry-btn {
+  display: block;
+  margin-top: 8px;
+  padding: 4px 14px;
+  border: 1px solid #f7768e;
+  border-radius: 4px;
+  background: transparent;
+  color: #f7768e;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+
+.retry-btn:hover {
+  background: #2a0a0a;
+}
+
 .event.tool {
   background: #0a0a0a;
   border: 1px solid #1e1e1e;
@@ -434,7 +452,7 @@ body {
   padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
 }
 
-#input-bar input {
+#input-bar textarea {
   flex: 1;
   min-width: 0;
   padding: 10px 14px;
@@ -442,13 +460,16 @@ body {
   border-radius: 8px;
   background: #161616;
   color: #d4d4d4;
-  font-size: 16px;
+  font-size: 14px;
+  font-family: inherit;
   outline: none;
   -webkit-appearance: none;
   transition: border-color 0.2s;
+  resize: none;
+  line-height: 1.5;
 }
 
-#input-bar input:focus { border-color: #444; }
+#input-bar textarea:focus { border-color: #444; }
 
 #input-bar button {
   padding: 10px 20px;

@@ -91,12 +91,15 @@ describe('writeEvent', () => {
     assert.strictEqual(unique.size, 5);
   });
 
-  it('returns timestamp', () => {
+  it('returns { ts, file }', () => {
     const eventsDir = path.join(tmpDir, 'events');
     const before = Date.now();
-    const ts = writeEvent(eventsDir, { type: 'user', content: 'hi' });
+    const result = writeEvent(eventsDir, { type: 'user', content: 'hi' });
     const after = Date.now();
-    assert.ok(ts >= before && ts <= after);
+    assert.ok(result.ts >= before && result.ts <= after);
+    assert.ok(fs.existsSync(result.file));
+    const data = JSON.parse(fs.readFileSync(result.file, 'utf-8'));
+    assert.strictEqual(data.content, 'hi');
   });
 
   it('written events can be read back by readEvents', () => {

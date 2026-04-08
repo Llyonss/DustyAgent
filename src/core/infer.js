@@ -13,6 +13,14 @@ function getClient() {
   return client;
 }
 
+function formatError(e) {
+  const parts = [];
+  if (e.status) parts.push(e.status);
+  if (e.error && e.error.type) parts.push(e.error.type);
+  const prefix = parts.length > 0 ? '[' + parts.join(' ') + '] ' : '';
+  return prefix + (e.message || String(e));
+}
+
 async function* infer(prompt, { signal } = {}) {
   let stream;
   try {
@@ -24,7 +32,7 @@ async function* infer(prompt, { signal } = {}) {
       signal,
     });
   } catch (e) {
-    yield { type: 'error', message: e.message || String(e) };
+    yield { type: 'error', message: formatError(e) };
     return;
   }
 
@@ -46,6 +54,7 @@ async function* infer(prompt, { signal } = {}) {
       } else if (event.type === 'content_block_delta') {
         if (event.delta.type === 'text_delta') {
           textContent += event.delta.text;
+          yield { type: 'text_delta', text: event.delta.text };
         } else if (event.delta.type === 'input_json_delta') {
           inputJson += event.delta.partial_json;
         }
@@ -78,7 +87,7 @@ async function* infer(prompt, { signal } = {}) {
     }
   } catch (e) {
     if (signal && signal.aborted) return;
-    yield { type: 'error', message: e.message || String(e) };
+    yield { type: 'error', message: formatError(e) };
     return;
   }
 

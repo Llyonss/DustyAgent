@@ -36,11 +36,12 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
     }
 
     const start = Date.now();
-    const { output, usage } = await run(infer(prompt, { signal }), eventsDir, ctrl, tools, signal);
+    const { output, usage, errors } = await run(infer(prompt, { signal }), eventsDir, ctrl, tools, signal);
     if (signal && signal.aborted) break;
     const duration = Date.now() - start;
 
     const turn = { prompt, output, usage, duration };
+    if (errors && errors.length > 0) turn.errors = errors;
     if (hooks.output) hooks.output(turn);
     yield turn;
 

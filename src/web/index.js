@@ -66,11 +66,10 @@ app.get('/api/events', (req, res) => {
 
 app.post('/api/events', async (req, res) => {
   const { content } = req.body;
-  if (!content) return res.status(400).json({ error: 'content required' });
 
   const { key, instanceDir, eventsDir } = resolve(req.query.instance);
   ensureDirs({ eventsDir });
-  writeEvent(eventsDir, { type: 'user', content });
+  if (content) writeEvent(eventsDir, { type: 'user', content });
   res.json({ ok: true });
 
   if (loops.has(key)) return;

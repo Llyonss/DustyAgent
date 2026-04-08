@@ -57,9 +57,13 @@ function buildMessages(events) {
     messages.unshift({ role: 'user', content: [{ type: 'text', text: '(session started)' }] });
   }
 
-  const lastMsg = messages[messages.length - 1];
-  if (lastMsg && lastMsg.role === 'user' && lastMsg.content.length > 0) {
-    lastMsg.content[lastMsg.content.length - 1].cache_control = { type: 'ephemeral' };
+  // Cache control on last two user messages
+  let cacheCount = 0;
+  for (let j = messages.length - 1; j >= 0 && cacheCount < 2; j--) {
+    if (messages[j].role === 'user' && messages[j].content.length > 0) {
+      messages[j].content[messages[j].content.length - 1].cache_control = { type: 'ephemeral' };
+      cacheCount++;
+    }
   }
 
   return messages;
