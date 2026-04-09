@@ -65,20 +65,21 @@ app.get('/api/events', (req, res) => {
 });
 
 app.post('/api/events', async (req, res) => {
-  const { content } = req.body;
+  const { content, retry } = req.body;
 
   const { key, instanceDir, eventsDir } = resolve(req.query.instance);
   ensureDirs({ eventsDir });
-  if (content) {
-    writeEvent(eventsDir, { type: 'user', content });
-  } else {
-    // Retry: remove trailing error events before restarting the loop
+
+  // On retry, remove trailing error events so LLM gets a clean context
+  if (retry) {
     const events = readEvents(eventsDir);
     for (let i = events.length - 1; i >= 0; i--) {
       if (events[i].type !== 'error') break;
       fs.unlinkSync(path.join(eventsDir, events[i]._file));
     }
   }
+
+  if (content) writeEvent(eventsDir, { type: 'user', content });
   res.json({ ok: true });
 
   if (loops.has(key)) return;
@@ -106,9 +107,11 @@ app.get('/api/instance-info', (req, res) => {
 
 app.get('/api/doc', (req, res) => {
   const { instanceDir } = resolve(req.query.instance);
+  const draftPath = path.join(instanceDir, 'doc.draft.md');
   const docPath = path.join(instanceDir, 'doc.md');
   try {
-    res.json({ content: fs.readFileSync(docPath, 'utf-8') });
+    const p = fs.existsSync(draftPath) ? draftPath : docPath;
+    res.json({ content: fs.readFileSync(p, 'utf-8') });
   } catch (e) {
     res.json({ content: null });
   }

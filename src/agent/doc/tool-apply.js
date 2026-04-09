@@ -5,13 +5,12 @@ function normalizeEndings(s) {
   return s.replace(/\r\n/g, '\n');
 }
 
-module.exports = function(docPath) {
+module.exports = function(docPath, draftPath) {
   return [
     {
       name: 'apply',
-      description: `Full rewrite of the document. Provide "content" with the complete new document.
-Use only when creating the document for the first time or rewriting most of it.
-After writing, call commit to record the version.`,
+      description: `全量重写文档。用 content 参数传入完整的新文档内容。
+仅用于首次创建文档或大幅重写时。写完后调用 commit 记录版本。`,
       input_schema: {
         type: 'object',
         properties: {
@@ -20,17 +19,20 @@ After writing, call commit to record the version.`,
         required: ['content'],
       },
       execute: async (input) => {
-        fs.mkdirSync(path.dirname(docPath), { recursive: true });
-        fs.writeFileSync(docPath, input.content);
+        fs.mkdirSync(path.dirname(draftPath), { recursive: true });
+        fs.writeFileSync(draftPath, input.content);
         return 'Document written (full rewrite). Call commit when done.';
       },
     },
     {
       name: 'patch',
-      description: `Incremental edit of the document. Provide "old" (exact substring) and "new" (replacement).
-"old" must be an EXACT substring of the current document (copy-paste precision).
-The patch will FAIL if "old" matches more than one location. Provide more context to make it unique.
-After patching, call commit to record the version.`,
+      description: `增量修改文档。用 old（精确子串）和 new（替换文本）指定改动。
+old 必须精确匹配草稿中的文本。匹配到多处会失败，需提供更多上下文。
+改完后调用 commit 记录版本。
+
+注意：apply/patch 操作的是工作草稿（draft），而非对话中 <document> 标签展示的正式版本。
+如果本轮已执行过 apply/patch，后续 patch 要基于修改后的草稿内容。
+patch 失败时，先用 read 工具读取草稿文件获取最新内容，再重新构造 patch。`,
       input_schema: {
         type: 'object',
         properties: {
@@ -42,7 +44,7 @@ After patching, call commit to record the version.`,
       execute: async (input) => {
         let raw;
         try {
-          raw = fs.readFileSync(docPath, 'utf-8');
+          raw = fs.readFileSync(draftPath, 'utf-8');
         } catch (e) {
           throw new Error('cannot read document for patching: ' + e.message);
         }
@@ -62,15 +64,16 @@ After patching, call commit to record the version.`,
         }
         doc = doc.replace(old, replacement);
         if (useCRLF) doc = doc.replace(/\n/g, '\r\n');
-        fs.writeFileSync(docPath, doc);
+        fs.writeFileSync(draftPath, doc);
         return 'Document patched. Call commit when done.';
       },
     },
     {
       name: 'commit',
-      description: `Commit the current document version. Provide "summary" describing what changed in this version.
-This stops the current loop. The summary will appear in version history.
-Call this after you have finished all apply/patch operations for this version.`,
+      description: `提交当前文档版本。用 summary 参数描述本版改动。
+提交后草稿会被提升为正式版本，对话历史被截断（之前的对话将不可见）。
+因此文档 + summary 必须完整承载本版讨论的所有信息。
+完成所有 apply/patch 操作后再调用此工具。`,
       input_schema: {
         type: 'object',
         properties: {
@@ -79,6 +82,11 @@ Call this after you have finished all apply/patch operations for this version.`,
         required: ['summary'],
       },
       execute: async (input, ctrl) => {
+        // Promote draft to committed doc
+        if (fs.existsSync(draftPath)) {
+          fs.copyFileSync(draftPath, docPath);
+          fs.unlinkSync(draftPath);
+        }
         ctrl.stop();
         return 'Version committed: ' + input.summary;
       },

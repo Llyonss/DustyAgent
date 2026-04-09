@@ -422,8 +422,9 @@ async function retry() {
   await fetch('/api/events?instance=' + encodeURIComponent(currentInstance), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ retry: true }),
   });
+  poll();
 }
 
 // ===== Stop Loop =====

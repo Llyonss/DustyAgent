@@ -10,10 +10,18 @@ const { readEvents } = require('../../core/event');
 
 module.exports = function(instanceDir) {
   const docPath = path.join(instanceDir, 'doc.md');
+  const draftPath = path.join(instanceDir, 'doc.draft.md');
   const eventsDir = path.join(instanceDir, 'events');
   const log = createLog(instanceDir);
-  const docTools = createDocTools(docPath);
+  const docTools = createDocTools(docPath, draftPath);
   const tools = [...docTools, ...toolLoop, ...toolCmd, ...toolFile];
+
+  // Ensure draft exists (working copy for apply/patch).
+  // If draft already exists (e.g. crash recovery), keep it to preserve uncommitted edits.
+  if (!fs.existsSync(draftPath)) {
+    try { fs.copyFileSync(docPath, draftPath); }
+    catch { /* doc.md doesn't exist yet — first run, draft will be created by apply */ }
+  }
 
   function readDoc() {
     try { return fs.readFileSync(docPath, 'utf-8'); }

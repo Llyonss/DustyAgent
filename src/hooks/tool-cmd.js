@@ -11,14 +11,14 @@ function truncate(s) {
 module.exports = [
   {
     name: 'cmd',
-    description: `Execute a shell command and return stdout/stderr.
+    description: `执行 shell 命令，返回 stdout/stderr。
 
-Usage:
-- Use for running shell commands, build scripts, git operations, etc.
-- Avoid using this tool for file operations that have dedicated tools (read, write, edit). Use the dedicated tools instead — they provide better experience and error handling.
-- If multiple commands are independent, make multiple cmd calls in parallel. If they depend on each other, chain with "&&".
-- You can specify an optional timeout in seconds (default 30, max 300).
-- Output is truncated at ${MAX_OUTPUT} characters to avoid context overflow.`,
+用法：
+- 用于运行 shell 命令、构建脚本、git 操作等。
+- 文件操作请用专用工具（read/write/edit），不要用 cmd。
+- 多个独立命令可并行调用；有依赖关系的用 "&&" 串联。
+- 可选 timeout 参数指定超时秒数（默认 30，最大 300）。
+- 输出超过 ${MAX_OUTPUT} 字符会被截断。`,
     input_schema: {
       type: 'object',
       properties: {

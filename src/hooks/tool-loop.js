@@ -1,13 +1,11 @@
 module.exports = [
   {
     name: 'rethink',
-    description: 'Continue to the next reasoning round. Call when your thinking is not yet complete and you need another round.',
+    description: '启动下一轮推理循环。无参数。',
     input_schema: {
       type: 'object',
-      properties: {
-        reason: { type: 'string', description: 'Reason for calling this tool' },
-      },
-      required: ['reason'],
+      properties: {},
+      required: [],
     },
     execute: async (input, ctrl) => { ctrl.wait(0); return 'Continuing.'; },
   },
