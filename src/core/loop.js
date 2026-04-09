@@ -26,7 +26,10 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
     ctrl.events = filtered;
     const raw = buildMessages(filtered);
     const messages = hooks.messages ? hooks.messages(raw) : raw;
-    const system = hooks.system ? hooks.system() : undefined;
+    const rawSystem = hooks.system ? hooks.system() : undefined;
+    const instanceName = path.basename(instanceDir);
+    const instanceInfo = { type: 'text', text: `\nInstance: ${instanceName}, instanceDir: ${instanceDir}` };
+    const system = rawSystem ? [...rawSystem, instanceInfo] : [instanceInfo];
     const tools = hooks.tools ? hooks.tools() : [];
 
     const prompt = { messages };

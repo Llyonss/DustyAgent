@@ -110,10 +110,11 @@ app.get('/api/doc', (req, res) => {
   const draftPath = path.join(instanceDir, 'doc.draft.md');
   const docPath = path.join(instanceDir, 'doc.md');
   try {
-    const p = fs.existsSync(draftPath) ? draftPath : docPath;
-    res.json({ content: fs.readFileSync(p, 'utf-8') });
+    const isDraft = fs.existsSync(draftPath);
+    const p = isDraft ? draftPath : docPath;
+    res.json({ content: fs.readFileSync(p, 'utf-8'), isDraft });
   } catch (e) {
-    res.json({ content: null });
+    res.json({ content: null, isDraft: false });
   }
 });
 
@@ -146,6 +147,18 @@ app.get('/api/file', (req, res) => {
     }
   } catch (e) {
     res.status(404).json({ error: e.message });
+  }
+});
+
+app.post('/api/file', (req, res) => {
+  const { path: filePath, content } = req.body;
+  if (!filePath) return res.status(400).json({ error: 'path required' });
+  if (typeof content !== 'string') return res.status(400).json({ error: 'content required' });
+  try {
+    fs.writeFileSync(filePath, content, 'utf-8');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

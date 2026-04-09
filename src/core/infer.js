@@ -26,9 +26,10 @@ async function* infer(prompt, { signal } = {}) {
   try {
     stream = await getClient().messages.create({
       model: process.env.LLM_MODEL,
-      max_tokens: 8192,
+      max_tokens: 64000,
       ...prompt,
       stream: true,
+      eager_input_streaming: true,
       signal,
     });
   } catch (e) {

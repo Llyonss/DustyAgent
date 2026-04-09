@@ -29,8 +29,8 @@ const docColContent = document.getElementById('doc-col-content');
 // ===== State =====
 let currentInstance = 'default';
 let currentAgent = 'default';
-let knownEventCount = 0;
-let knownLastOutput = '';  // track last event output for streaming detection
+let lastEventsJSON = '';  // detect changes by comparing serialized events
+let lastEventsData = [];  // store parsed events for study highlight
 
 // ===== Pricing (per M tokens) =====
 const PRICING = {
@@ -96,8 +96,7 @@ function fmtK(n) {
 // ===== Instance Switching =====
 function switchInstance(name) {
   currentInstance = name;
-  knownEventCount = 0;
-  knownLastOutput = '';
+  lastEventsJSON = '';
   eventsDiv.innerHTML = '';
   costBar.innerHTML = '';
   agentBadge.textContent = '';
@@ -184,7 +183,7 @@ async function pollInfo() {
     const res = await fetch('/api/instance-info?instance=' + encodeURIComponent(currentInstance));
     const info = await res.json();
     currentAgent = info.agent || 'default';
-    agentBadge.textContent = currentAgent === 'doc' ? '📄 doc' : '⚡ agent';
+    agentBadge.textContent = currentAgent === 'doc' ? '🧠 doc' : '⚡ agent';
     agentBadge.className = 'badge-' + currentAgent;
 
     const isDoc = currentAgent === 'doc';
@@ -205,7 +204,14 @@ async function refreshDocCol() {
     const res = await fetch('/api/doc?instance=' + encodeURIComponent(currentInstance));
     const data = await res.json();
     const text = data.content != null ? data.content : '';
-    docColContent.innerHTML = text ? renderMarkdown(text) : '<p style="color:#666">（空文档）</p>';
+    const title = data.isDraft ? '🧠 心智（草稿）' : '🧠 心智';
+    document.getElementById('doc-col-header').textContent = title;
+    docColContent.innerHTML = text ? renderMarkdown(text) : '<p style="color:#666">（空心智）</p>';
+    // Apply study highlights
+    if (text) {
+      const highlights = getStudyHighlights(lastEventsData);
+      highlightStudyText(docColContent, highlights);
+    }
   } catch (e) { /* ignore */ }
 }
 
@@ -221,7 +227,14 @@ async function openDoc() {
     const res = await fetch('/api/doc?instance=' + encodeURIComponent(currentInstance));
     const data = await res.json();
     const text = data.content != null ? data.content : '';
-    docDialogContent.innerHTML = text ? renderMarkdown(text) : '<p style="color:#666">（空文档）</p>';
+    const title = data.isDraft ? '🧠 心智（草稿）' : '🧠 心智';
+    docDialogContent.innerHTML = text ? renderMarkdown(text) : '<p style="color:#666">（空心智）</p>';
+    // Apply study highlights
+    if (text) {
+      const highlights = getStudyHighlights(lastEventsData);
+      highlightStudyText(docDialogContent, highlights);
+    }
+    docDialog.querySelector('.dialog-title').textContent = title;
   } catch (e) {
     docDialogContent.innerHTML = '<p style="color:#e94560">加载失败</p>';
   }
@@ -264,7 +277,7 @@ function renderSingleEvent(e) {
 
   if (e.type === 'action' && e.tool !== 'stop' && e.tool !== 'wait' && e.tool !== 'commit') {
     div.className = 'event tool';
-    const inputStr = JSON.stringify(e.input);
+    const inputStr = typeof e.input === 'string' ? e.input : JSON.stringify(e.input);
     const outputStr = String(e.output);
     div.innerHTML = '<div class="label">' + esc(e.tool) + '</div>'
       + '<div class="tool-input">' + esc(inputStr) + '</div>'
@@ -309,7 +322,7 @@ function renderEvents(events) {
       const summary = seg.commit.input && seg.commit.input.summary || '';
       const header = document.createElement('div');
       header.className = 'apply-header';
-      header.innerHTML = '<span class="apply-toggle">' + (isExpanded ? '\u25bc' : '\u25b6') + '</span> <span class="label">\ud83d\udcc4 \u6587\u6863\u5df2\u63d0\u4ea4</span> <span class="apply-summary">' + esc(summary) + '</span>';
+      header.innerHTML = '<span class="apply-toggle">' + (isExpanded ? '\u25bc' : '\u25b6') + '</span> <span class="label">\ud83e\udde0 \u5fc3\u667a\u5df2\u63d0\u4ea4</span> <span class="apply-summary">' + esc(summary) + '</span>';
       header.onclick = () => {
         wrapper.classList.toggle('collapsed');
         header.querySelector('.apply-toggle').textContent = wrapper.classList.contains('collapsed') ? '\u25b6' : '\u25bc';
@@ -354,47 +367,174 @@ function renderMarkdown(text) {
   }
 }
 
+// ===== Study Highlight =====
+// Strip markdown syntax to extract plain text fragments for DOM matching
+function stripMarkdown(text) {
+  return text
+    .replace(/^#{1,6}\s+/gm, '')       // headings
+    .replace(/\*\*([^*]+)\*\*/g, '$1')  // bold
+    .replace(/\*([^*]+)\*/g, '$1')      // italic
+    .replace(/__([^_]+)__/g, '$1')      // bold alt
+    .replace(/_([^_]+)_/g, '$1')        // italic alt
+    .replace(/~~([^~]+)~~/g, '$1')      // strikethrough
+    .replace(/`([^`]+)`/g, '$1')        // inline code
+    .replace(/^\s*[-*+]\s+/gm, '')      // unordered list markers
+    .replace(/^\s*\d+\.\s+/gm, '')      // ordered list markers
+    .replace(/^\s*>\s+/gm, '')          // blockquote
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1'); // links
+}
+
+// Extract `new` fields from study events after the last commit
+function getStudyHighlights(events) {
+  const highlights = [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.type === 'action' && e.tool === 'commit' && !e.error) break;
+    if (e.type === 'action' && e.tool === 'study' && !e.error && e.input && e.input.new) {
+      // Split into lines, strip markdown, filter short/empty lines
+      const lines = stripMarkdown(e.input.new).split('\n')
+        .map(l => l.trim()).filter(l => l.length >= 4);
+      highlights.push(...lines);
+    }
+  }
+  return highlights;
+}
+
+// Highlight matching substrings in rendered HTML by walking text nodes
+function highlightStudyText(container, highlights) {
+  if (!highlights || highlights.length === 0) return;
+  // Deduplicate and sort by length desc (match longer first)
+  const unique = [...new Set(highlights)].filter(h => h.length > 0).sort((a, b) => b.length - a.length);
+  if (unique.length === 0) return;
+
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+  for (const node of textNodes) {
+    const text = node.textContent;
+    if (!text) continue;
+    // Try each highlight pattern
+    let fragments = null;
+    for (const hl of unique) {
+      const idx = text.indexOf(hl);
+      if (idx === -1) continue;
+      // Found a match — split this text node
+      if (!fragments) fragments = document.createDocumentFragment();
+      let remaining = text;
+      let offset = 0;
+      // Find all occurrences in this text node
+      let searchFrom = 0;
+      const parts = [];
+      while (true) {
+        const pos = remaining.indexOf(hl, searchFrom);
+        if (pos === -1) break;
+        if (pos > searchFrom) parts.push({ text: remaining.substring(searchFrom, pos), highlight: false });
+        parts.push({ text: hl, highlight: true });
+        searchFrom = pos + hl.length;
+      }
+      if (searchFrom < remaining.length) parts.push({ text: remaining.substring(searchFrom), highlight: false });
+
+      for (const part of parts) {
+        if (part.highlight) {
+          const mark = document.createElement('mark');
+          mark.className = 'study-hl';
+          mark.textContent = part.text;
+          fragments.appendChild(mark);
+        } else {
+          fragments.appendChild(document.createTextNode(part.text));
+        }
+      }
+      break; // Only apply the first matching highlight per text node
+    }
+    if (fragments) {
+      node.parentNode.replaceChild(fragments, node);
+    }
+  }
+}
+
 function scrollToBottom() {
   eventsDiv.scrollTop = eventsDiv.scrollHeight;
 }
 
 // ===== Polling =====
-function getLastOutput(events) {
-  if (events.length === 0) return '';
-  const last = events[events.length - 1];
-  return String(last.output || last.content || last.message || '');
-}
+let pollTimer = null;
+let pollRunning = false;
 
 async function poll() {
+  if (pollRunning) return; // prevent overlapping polls
+  pollRunning = true;
   try {
     const res = await fetch('/api/events?instance=' + encodeURIComponent(currentInstance));
     const data = await res.json();
-    const events = data.events;
-    const lastOutput = getLastOutput(events);
+    const json = JSON.stringify(data.events);
+    if (json !== lastEventsJSON) {
+      const prevEvents = lastEventsData;
+      lastEventsJSON = json;
+      lastEventsData = data.events;
 
-    if (events.length !== knownEventCount) {
-      // Event count changed — full re-render
-      renderEvents(events);
-      knownEventCount = events.length;
-      knownLastOutput = lastOutput;
-      scrollToBottom();
-    } else if (lastOutput !== knownLastOutput) {
-      // Same count but last event content changed (streaming speak)
-      // Update only the last speak element in-place
-      knownLastOutput = lastOutput;
-      const last = events[events.length - 1];
-      if (last && last.type === 'action' && last.tool === 'speak') {
-        const speakEls = eventsDiv.querySelectorAll('.event.speak');
-        const lastSpeakEl = speakEls[speakEls.length - 1];
-        if (lastSpeakEl) {
-          const mdDiv = lastSpeakEl.querySelector('.md-content');
-          if (mdDiv) mdDiv.innerHTML = renderMarkdown(last.output);
-        }
+      // Try incremental update: if only the last event's output changed
+      if (tryIncrementalUpdate(prevEvents, data.events)) {
+        // Success — no full re-render needed
+      } else {
+        renderEvents(data.events);
       }
       scrollToBottom();
     }
     stopBtn.style.display = data.running ? '' : 'none';
+    // Adaptive poll rate: faster when running
+    const interval = data.running ? 100 : 300;
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(poll, interval);
   } catch (e) { /* ignore */ }
+  pollRunning = false;
+}
+
+// Incremental DOM update: if only the last event changed (streaming speak/tool)
+function tryIncrementalUpdate(prevEvents, newEvents) {
+  if (!prevEvents || prevEvents.length === 0) return false;
+  // Must have same number of events, and only the last one differs
+  if (prevEvents.length !== newEvents.length) return false;
+
+  // Check that all events except the last are identical
+  for (let i = 0; i < newEvents.length - 1; i++) {
+    if (prevEvents[i].ts !== newEvents[i].ts) return false;
+  }
+
+  const last = newEvents[newEvents.length - 1];
+  const prevLast = prevEvents[prevEvents.length - 1];
+  if (last.ts !== prevLast.ts) return false;
+  if (last.type !== prevLast.type || last.tool !== prevLast.tool) return false;
+
+  // Find the last rendered DOM element
+  const children = eventsDiv.children;
+  if (children.length === 0) return false;
+  const lastEl = children[children.length - 1];
+
+  if (last.type === 'action' && last.tool === 'speak') {
+    // Update speak content in-place
+    const mdDiv = lastEl.querySelector('.md-content');
+    if (mdDiv && lastEl.classList.contains('speak')) {
+      mdDiv.innerHTML = renderMarkdown(last.output);
+      return true;
+    }
+  }
+
+  if (last.type === 'action' && last.tool !== 'speak' && last.tool !== 'stop' && last.tool !== 'wait' && last.tool !== 'commit') {
+    // Update tool event in-place
+    if (lastEl.classList.contains('tool')) {
+      const inputDiv = lastEl.querySelector('.tool-input');
+      const outputDiv = lastEl.querySelector('.tool-output');
+      if (inputDiv && outputDiv) {
+        const inputStr = typeof last.input === 'string' ? last.input : JSON.stringify(last.input);
+        inputDiv.textContent = inputStr;
+        outputDiv.textContent = String(last.output);
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 async function pollUsage() {
@@ -463,7 +603,12 @@ const fileDialog = document.getElementById('file-dialog');
 const filePathInput = document.getElementById('file-path-input');
 const fileDialogContent = document.getElementById('file-dialog-content');
 const fileBackBtn = document.getElementById('file-back-btn');
+const fileEditBtn = document.getElementById('file-edit-btn');
+const fileSaveBtn = document.getElementById('file-save-btn');
+const fileCancelEditBtn = document.getElementById('file-cancel-edit-btn');
 let fileHistory = [];
+let fileCurrentData = null; // store current file data for edit mode
+let fileEditing = false;
 
 async function openFile(filePath) {
   filePath = filePath.trim();
@@ -472,6 +617,11 @@ async function openFile(filePath) {
   fileDialog.style.display = '';
   fileDialogContent.innerHTML = '<p style="color:#666">加载中...</p>';
   fileBackBtn.style.display = 'none';
+  fileEditBtn.style.display = 'none';
+  fileSaveBtn.style.display = 'none';
+  fileCancelEditBtn.style.display = 'none';
+  fileEditing = false;
+  fileCurrentData = null;
   try {
     const res = await fetch('/api/file?path=' + encodeURIComponent(filePath));
     if (!res.ok) {
@@ -480,7 +630,12 @@ async function openFile(filePath) {
       return;
     }
     const data = await res.json();
+    fileCurrentData = data;
     renderFileContent(data);
+    // Show edit button for files (not directories)
+    if (data.type === 'file') {
+      fileEditBtn.style.display = '';
+    }
   } catch (e) {
     fileDialogContent.innerHTML = '<p style="color:#e94560">加载失败</p>';
   }
@@ -549,6 +704,78 @@ function goFilePath() {
 function closeFile() {
   fileDialog.style.display = 'none';
   fileHistory = [];
+  fileEditing = false;
+  fileCurrentData = null;
+}
+
+function toggleFileEdit() {
+  if (!fileCurrentData || fileCurrentData.type !== 'file') return;
+  fileEditing = true;
+  fileEditBtn.style.display = 'none';
+  fileSaveBtn.style.display = '';
+  fileCancelEditBtn.style.display = '';
+  const textarea = document.createElement('textarea');
+  textarea.className = 'file-edit-area';
+  textarea.value = fileCurrentData.content;
+  textarea.addEventListener('keydown', (e) => {
+    if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      saveFile();
+    }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      textarea.value = textarea.value.substring(0, start) + '  ' + textarea.value.substring(end);
+      textarea.selectionStart = textarea.selectionEnd = start + 2;
+    }
+  });
+  fileDialogContent.innerHTML = '';
+  fileDialogContent.appendChild(textarea);
+  textarea.focus();
+}
+
+function cancelFileEdit() {
+  if (!fileCurrentData) return;
+  fileEditing = false;
+  fileSaveBtn.style.display = 'none';
+  fileCancelEditBtn.style.display = 'none';
+  fileEditBtn.style.display = '';
+  renderFileContent(fileCurrentData);
+}
+
+async function saveFile() {
+  const textarea = fileDialogContent.querySelector('.file-edit-area');
+  if (!textarea || !fileCurrentData) return;
+  const content = textarea.value;
+  const filePath = fileCurrentData.path;
+  fileSaveBtn.disabled = true;
+  fileSaveBtn.textContent = '保存中...';
+  try {
+    const res = await fetch('/api/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath, content }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert('保存失败: ' + (err.error || '未知错误'));
+      return;
+    }
+    // Update cached data and switch back to view mode
+    fileCurrentData.content = content;
+    fileCurrentData.size = new Blob([content]).size;
+    fileEditing = false;
+    fileSaveBtn.style.display = 'none';
+    fileCancelEditBtn.style.display = 'none';
+    fileEditBtn.style.display = '';
+    renderFileContent(fileCurrentData);
+  } catch (e) {
+    alert('保存失败: ' + e.message);
+  } finally {
+    fileSaveBtn.disabled = false;
+    fileSaveBtn.textContent = '保存';
+  }
 }
 
 filePathInput.addEventListener('keydown', (e) => {
@@ -558,13 +785,11 @@ filePathInput.addEventListener('keydown', (e) => {
 
 // ===== File Path Detection =====
 function linkifyPaths(html) {
-  // Match Windows absolute paths like C:\... or D:\...
-  // Process the HTML string and match paths outside of HTML tags
-  return html.replace(/(<[^>]*>)|([A-Z]:\\[^\s<>"'\)\]]+)/gi, (match, tag, pathStr) => {
+  // Match Windows absolute paths (C:\... or C:/...) and Unix paths (/home/...)
+  return html.replace(/(<[^>]*>)|([A-Z]:[\\\/][^\s<>"'\)\]]+)/gi, (match, tag, pathStr) => {
     if (tag) return tag; // inside an HTML tag, leave it alone
     // Clean trailing punctuation
     let clean = pathStr.replace(/[.,;:!?]+$/, '');
-    // Use data-path attribute + class instead of inline onclick to avoid quote escaping issues
     return '<span class="file-link" data-path="' + escAttr(clean) + '">' + esc(clean) + '</span>' + pathStr.slice(clean.length);
   });
 }
@@ -591,7 +816,7 @@ renderMarkdown = function(text) {
 // ===== Init =====
 loadInstances();
 pollInfo();
-setInterval(poll, 300);
+pollTimer = setInterval(poll, 300);
 setInterval(pollUsage, 2000);
 setInterval(loadInstances, 3000);
 poll();

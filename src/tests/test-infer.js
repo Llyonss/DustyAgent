@@ -494,8 +494,9 @@ describe('infer', () => {
     await collect(infer(prompt, {}));
 
     assert.strictEqual(capturedBody.model, 'test-model');
-    assert.strictEqual(capturedBody.max_tokens, 8192);
+    assert.strictEqual(capturedBody.max_tokens, 64000);
     assert.strictEqual(capturedBody.stream, true);
+    assert.strictEqual(capturedBody.eager_input_streaming, true);
     assert.deepStrictEqual(capturedBody.system, prompt.system);
     assert.deepStrictEqual(capturedBody.messages, prompt.messages);
     assert.deepStrictEqual(capturedBody.tools, prompt.tools);

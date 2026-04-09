@@ -193,7 +193,12 @@ describe('loop', () => {
       },
     }));
 
-    assert.deepStrictEqual(turns[0].prompt.system, [{ type: 'text', text: 'You are a test bot' }]);
+    // loop.js appends instance info block after hooks.system
+    const system = turns[0].prompt.system;
+    assert.strictEqual(system[0].type, 'text');
+    assert.strictEqual(system[0].text, 'You are a test bot');
+    assert.strictEqual(system.length, 2);
+    assert.ok(system[1].text.includes('Instance:'));
   });
 
   it('hooks.tools are included in prompt with cache_control on last', async () => {

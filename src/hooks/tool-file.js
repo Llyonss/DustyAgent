@@ -21,7 +21,8 @@ module.exports = [
       required: ['path'],
     },
     execute: async (input, ctrl) => {
-      const raw = fs.readFileSync(input.path, 'utf-8');
+      const filePath = path.normalize(input.path);
+      const raw = fs.readFileSync(filePath, 'utf-8');
       const content = normalizeEndings(raw);
 
       // Check if file is unchanged since last read (from ctrl.events)
@@ -46,7 +47,7 @@ module.exports = [
 - 用于创建新文件或完整重写已有文件。
 - 修改已有文件优先用 edit 工具——只传改动部分，更快、更省、更不容易出错。
 - 非任务明确要求时不要写文件。
-- content 完整发送，受单次输出 token 限制。超过 200 行建议分步写入或用 cmd 生成。`,
+- content 完整发送，受单次输出 token 限制，最高 3000 字。如超出建议分步写入或用 cmd 生成。`,
     input_schema: {
       type: 'object',
       properties: {
@@ -56,8 +57,9 @@ module.exports = [
       required: ['path', 'content'],
     },
     execute: async (input) => {
-      fs.mkdirSync(path.dirname(input.path), { recursive: true });
-      fs.writeFileSync(input.path, input.content);
+      const filePath = path.normalize(input.path);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, input.content);
       return 'File written successfully.';
     },
   },
@@ -80,7 +82,8 @@ module.exports = [
       required: ['path', 'old', 'new'],
     },
     execute: async (input) => {
-      const raw = fs.readFileSync(input.path, 'utf-8');
+      const filePath = path.normalize(input.path);
+      const raw = fs.readFileSync(filePath, 'utf-8');
       const useCRLF = raw.includes('\r\n');
       let content = normalizeEndings(raw);
       const old = normalizeEndings(input.old);
@@ -97,7 +100,7 @@ module.exports = [
       }
       content = content.replace(old, replacement);
       if (useCRLF) content = content.replace(/\n/g, '\r\n');
-      fs.writeFileSync(input.path, content);
+      fs.writeFileSync(filePath, content);
       return 'File edited successfully.';
     },
   },

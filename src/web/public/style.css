@@ -534,6 +534,14 @@ body {
   flex-direction: column;
 }
 
+@media (min-width: 769px) {
+  .file-dialog-box.dialog-wide {
+    width: 90vw;
+    max-width: 1200px;
+    max-height: 90vh;
+  }
+}
+
 .dialog-wide #doc-dialog-content {
   flex: 1;
   overflow-y: auto;
@@ -626,7 +634,7 @@ body {
 
 /* ===== File Viewer Dialog ===== */
 .file-dialog-box {
-  max-height: 85vh;
+  max-height: 90vh;
 }
 
 .file-dialog-header {
@@ -674,7 +682,27 @@ body {
   border-radius: 8px;
   margin-bottom: 12px;
   min-height: 200px;
-  max-height: calc(85vh - 140px);
+  max-height: calc(90vh - 140px);
+}
+
+/* File edit mode */
+.file-edit-area {
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+  padding: 14px 16px;
+  background: #0a0a0a;
+  color: #d4d4d4;
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  tab-size: 2;
+  -moz-tab-size: 2;
+  white-space: pre;
+  overflow: auto;
 }
 
 /* Directory listing */
@@ -757,6 +785,14 @@ body {
 .file-link:hover {
   color: #9ab8ff;
   text-decoration-style: solid;
+}
+
+/* Study highlight — subtle warm glow */
+.study-hl {
+  background: rgba(224, 175, 104, 0.08);
+  border-bottom: 1px solid rgba(224, 175, 104, 0.25);
+  padding: 0 1px;
+  border-radius: 2px;
 }
 
 /* ===== Mobile ===== */

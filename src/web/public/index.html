@@ -12,7 +12,7 @@
   </div>
   <div id="info-bar">
     <span id="agent-badge"></span>
-    <button id="doc-btn" style="display:none" onclick="openDoc()">📄 文档</button>
+    <button id="doc-btn" style="display:none" onclick="openDoc()">🧠 心智</button>
     <span id="cost-bar"></span>
   </div>
   <div id="main">
@@ -25,7 +25,7 @@
       </div>
     </div>
     <div id="doc-col" style="display:none">
-      <div id="doc-col-header">📄 文档</div>
+      <div id="doc-col-header">🧠 心智</div>
       <div id="doc-col-content" class="md-content"></div>
     </div>
   </div>
@@ -34,7 +34,7 @@
   <div id="doc-dialog" style="display:none">
     <div class="dialog-backdrop" onclick="closeDoc()"></div>
     <div class="dialog-box dialog-wide">
-      <div class="dialog-title">📄 文档</div>
+      <div class="dialog-title">🧠 心智</div>
       <div id="doc-dialog-content" class="md-content"></div>
       <div class="dialog-buttons">
         <button onclick="closeDoc()">关闭</button>
@@ -54,6 +54,9 @@
       <div id="file-dialog-content"></div>
       <div class="dialog-buttons">
         <button id="file-back-btn" style="margin-right:auto;display:none" onclick="fileGoBack()">← 上级</button>
+        <button id="file-edit-btn" style="display:none" onclick="toggleFileEdit()">编辑</button>
+        <button id="file-save-btn" style="display:none" class="primary" onclick="saveFile()">保存</button>
+        <button id="file-cancel-edit-btn" style="display:none" onclick="cancelFileEdit()">取消编辑</button>
         <button onclick="closeFile()">关闭</button>
       </div>
     </div>
@@ -72,7 +75,7 @@
         </div>
         <div class="agent-option" data-agent="doc" onclick="selectAgent(this)">
           <div class="agent-name">Document</div>
-          <div class="agent-desc">专注于创作和修订文档</div>
+          <div class="agent-desc">维护持久心智的智能体</div>
         </div>
       </div>
       <div class="dialog-buttons">
