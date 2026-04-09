@@ -45,7 +45,8 @@ module.exports = [
 用法：
 - 用于创建新文件或完整重写已有文件。
 - 修改已有文件优先用 edit 工具——只传改动部分，更快、更省、更不容易出错。
-- 非任务明确要求时不要写文件。`,
+- 非任务明确要求时不要写文件。
+- content 完整发送，受单次输出 token 限制。超过 200 行建议分步写入或用 cmd 生成。`,
     input_schema: {
       type: 'object',
       properties: {
@@ -67,7 +68,8 @@ module.exports = [
 用法：
 - old 必须是文件中的精确子串（逐字匹配，含空白和换行）。
 - 若 old 匹配到多处，编辑会失败——请提供更多上下文使其唯一。
-- 修改已有文件优先用此工具而非 write。`,
+- 修改已有文件优先用此工具而非 write。
+- 适合局部修改。old + new 总计超过 200 行时，考虑用 write 重写整个文件。`,
     input_schema: {
       type: 'object',
       properties: {
