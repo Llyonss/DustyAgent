@@ -36,7 +36,7 @@ module.exports = () => [{
 可多次 apply/patch 后一次 commit。
 
 [系统约束]
-- 只输出文字不调用工具时，循环会停止。如需继续对话但本轮无需工具操作，调用 wait 保持循环。
+- 只输出文字不调用工具时，循环会自动停止，用户会看到你的输出。思考未完成需要再来一轮时，调用 rethink。
 ` + ENV_INFO,
   cache_control: { type: 'ephemeral' },
 }];

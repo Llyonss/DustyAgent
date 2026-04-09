@@ -23,6 +23,9 @@ async function run(stream, eventsDir, ctrl, tools, signal) {
   let speakFile = null;
   let speakText = '';
 
+  // Track active tool blocks: id -> { file, inputRaw }
+  const activeTools = new Map();
+
   for await (const evt of stream) {
     if (signal && signal.aborted) break;
 
@@ -59,16 +62,56 @@ async function run(stream, eventsDir, ctrl, tools, signal) {
       // Reset for next text block
       speakFile = null;
       speakText = '';
-    } else if (evt.type === 'tool_call') {
+    } else if (evt.type === 'tool_start') {
       hasToolCalls = true;
-      const result = await executeTool(evt.name, evt.input, ctrl, tools, eventsDir);
-      output.push({ type: 'tool_use', id: evt.id, name: evt.name, input: evt.input });
-      writeEvent(eventsDir, {
+      // Create event file immediately with empty input/output
+      const result = writeEvent(eventsDir, {
         type: 'action', turn,
         tool: evt.name, toolUseId: evt.id,
-        input: evt.input, output: result.output,
-        ...(result.error ? { error: true } : {}),
+        input: '', output: '',
       });
+      activeTools.set(evt.id, { file: result.file, inputRaw: '' });
+    } else if (evt.type === 'tool_delta') {
+      // Find the active tool by scanning activeTools (latest one)
+      const last = [...activeTools.values()].pop();
+      if (last) {
+        last.inputRaw += evt.partial_json;
+        // Update event file in-place with raw input
+        const event = JSON.parse(fs.readFileSync(last.file, 'utf-8'));
+        event.input = last.inputRaw;
+        fs.writeFileSync(last.file, JSON.stringify(event, null, 2));
+      }
+    } else if (evt.type === 'tool_call') {
+      hasToolCalls = true;
+      const active = activeTools.get(evt.id);
+      const file = active ? active.file : null;
+
+      // Update event file with parsed input before execution
+      if (file) {
+        const event = JSON.parse(fs.readFileSync(file, 'utf-8'));
+        event.input = evt.input;
+        fs.writeFileSync(file, JSON.stringify(event, null, 2));
+      }
+
+      const result = await executeTool(evt.name, evt.input, ctrl, tools, eventsDir);
+      output.push({ type: 'tool_use', id: evt.id, name: evt.name, input: evt.input });
+
+      // Update event file with output (or write new one if no file tracked)
+      if (file) {
+        const event = JSON.parse(fs.readFileSync(file, 'utf-8'));
+        event.output = result.output;
+        if (result.error) event.error = true;
+        fs.writeFileSync(file, JSON.stringify(event, null, 2));
+      } else {
+        writeEvent(eventsDir, {
+          type: 'action', turn,
+          tool: evt.name, toolUseId: evt.id,
+          input: evt.input, output: result.output,
+          ...(result.error ? { error: true } : {}),
+        });
+      }
+
+      activeTools.delete(evt.id);
     } else if (evt.type === 'usage') {
       usage = evt.usage;
     } else if (evt.type === 'error') {

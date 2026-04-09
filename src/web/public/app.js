@@ -160,7 +160,7 @@ function selectAgent(el) {
 }
 
 async function confirmCreate() {
-  const name = createNameInput.value.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  const name = createNameInput.value.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim();
   if (!name) return;
   const agent = createDialog.querySelector('.agent-option.selected')?.dataset.agent || 'default';
   closeCreateDialog();

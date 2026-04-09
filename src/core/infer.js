@@ -51,12 +51,16 @@ async function* infer(prompt, { signal } = {}) {
         currentBlock = event.content_block;
         inputJson = '';
         textContent = '';
+        if (currentBlock && currentBlock.type === 'tool_use') {
+          yield { type: 'tool_start', id: currentBlock.id, name: currentBlock.name };
+        }
       } else if (event.type === 'content_block_delta') {
         if (event.delta.type === 'text_delta') {
           textContent += event.delta.text;
           yield { type: 'text_delta', text: event.delta.text };
         } else if (event.delta.type === 'input_json_delta') {
           inputJson += event.delta.partial_json;
+          yield { type: 'tool_delta', partial_json: event.delta.partial_json };
         }
       } else if (event.type === 'content_block_stop') {
         if (currentBlock && currentBlock.type === 'text') {

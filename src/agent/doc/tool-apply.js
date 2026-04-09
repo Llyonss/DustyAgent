@@ -1,6 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 
+function normalizeEndings(s) {
+  return s.replace(/\r\n/g, '\n');
+}
+
 module.exports = function(docPath) {
   return [
     {
@@ -36,22 +40,28 @@ After patching, call commit to record the version.`,
         required: ['old', 'new'],
       },
       execute: async (input) => {
-        let doc;
+        let raw;
         try {
-          doc = fs.readFileSync(docPath, 'utf-8');
+          raw = fs.readFileSync(docPath, 'utf-8');
         } catch (e) {
           throw new Error('cannot read document for patching: ' + e.message);
         }
-        if (!doc.includes(input.old)) {
-          const snippet = input.old.length > 200 ? input.old.substring(0, 200) + '...' : input.old;
+        const useCRLF = raw.includes('\r\n');
+        let doc = normalizeEndings(raw);
+        const old = normalizeEndings(input.old);
+        const replacement = normalizeEndings(input.new);
+
+        if (!doc.includes(old)) {
+          const snippet = old.length > 200 ? old.substring(0, 200) + '...' : old;
           throw new Error('text not found in document: "' + snippet + '"');
         }
-        const matches = doc.split(input.old).length - 1;
+        const matches = doc.split(old).length - 1;
         if (matches > 1) {
-          const snippet = input.old.length > 200 ? input.old.substring(0, 200) + '...' : input.old;
+          const snippet = old.length > 200 ? old.substring(0, 200) + '...' : old;
           throw new Error('found ' + matches + ' matches in document. Provide more context to uniquely identify the target: "' + snippet + '"');
         }
-        doc = doc.replace(input.old, input.new);
+        doc = doc.replace(old, replacement);
+        if (useCRLF) doc = doc.replace(/\n/g, '\r\n');
         fs.writeFileSync(docPath, doc);
         return 'Document patched. Call commit when done.';
       },

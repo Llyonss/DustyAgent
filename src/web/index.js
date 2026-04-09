@@ -20,8 +20,8 @@ const instancesRoot = path.join(__dirname, '../../instances');
 const loops = new Map();
 
 function resolve(name) {
-  const safe = (name || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
-  const key = safe || 'default';
+  const safe = (name || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim();
+  const key = safe && safe !== '.' && safe !== '..' ? safe : 'default';
   const instanceDir = path.join(instancesRoot, key);
   const eventsDir = path.join(instanceDir, 'events');
   return { key, instanceDir, eventsDir };
@@ -69,7 +69,16 @@ app.post('/api/events', async (req, res) => {
 
   const { key, instanceDir, eventsDir } = resolve(req.query.instance);
   ensureDirs({ eventsDir });
-  if (content) writeEvent(eventsDir, { type: 'user', content });
+  if (content) {
+    writeEvent(eventsDir, { type: 'user', content });
+  } else {
+    // Retry: remove trailing error events before restarting the loop
+    const events = readEvents(eventsDir);
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].type !== 'error') break;
+      fs.unlinkSync(path.join(eventsDir, events[i]._file));
+    }
+  }
   res.json({ ok: true });
 
   if (loops.has(key)) return;

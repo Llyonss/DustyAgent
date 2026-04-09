@@ -23,6 +23,7 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
 
     const events = readEvents(eventsDir);
     const filtered = hooks.events ? hooks.events(events) : events;
+    ctrl.events = filtered;
     const raw = buildMessages(filtered);
     const messages = hooks.messages ? hooks.messages(raw) : raw;
     const system = hooks.system ? hooks.system() : undefined;
