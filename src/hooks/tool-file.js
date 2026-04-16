@@ -12,31 +12,62 @@ module.exports = [
 
 用法：
 - path 参数必须是绝对路径。
-- 只能读文本文件，不能读目录。列目录请用 cmd 的 "dir" 或 "ls"。`,
+- 只能读文本文件，不能读目录。列目录请用 cmd 的 "dir" 或 "ls"。
+- 可选 from_line/to_line 指定行范围（1-based，含两端）。
+- 超过500行或30000字符自动裁剪，请用行范围参数分段读取。`,
     input_schema: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'File path to read' },
+        from_line: { type: 'number', description: 'Start line (1-based, inclusive)' },
+        to_line: { type: 'number', description: 'End line (1-based, inclusive)' },
       },
       required: ['path'],
     },
     execute: async (input, ctrl) => {
+      const MAX_LINES = 500;
+      const MAX_CHARS = 30000;
       const filePath = path.normalize(input.path);
       const raw = fs.readFileSync(filePath, 'utf-8');
       const content = normalizeEndings(raw);
+      const allLines = content.split('\n');
+      const totalLines = allLines.length;
 
-      // Check if file is unchanged since last read (from ctrl.events)
-      if (ctrl && ctrl.events) {
+      const hasRange = input.from_line != null || input.to_line != null;
+      const from = (input.from_line || 1) - 1; // 0-based
+      const to = Math.min((input.to_line || totalLines), totalLines); // 1-based inclusive → slice end
+      const sliced = allLines.slice(from, to);
+
+      // Truncate by line count and char count
+      let charCount = 0;
+      let lineCount = 0;
+      for (let i = 0; i < sliced.length; i++) {
+        charCount += sliced[i].length + 1; // +1 for \n
+        lineCount++;
+        if (lineCount >= MAX_LINES || charCount >= MAX_CHARS) break;
+      }
+      const truncated = lineCount < sliced.length;
+      const result = sliced.slice(0, lineCount).join('\n');
+
+      if (truncated) {
+        const shownFrom = from + 1;
+        const shownTo = from + lineCount;
+        const totalChars = content.length;
+        return result + `\n[truncated: ${shownFrom}-${shownTo} of ${totalLines} lines, ${(charCount / 1000).toFixed(1)}k/${(totalChars / 1000).toFixed(1)}k chars] Use from_line/to_line to read specific ranges.`;
+      }
+
+      // unchanged check: only for full-file reads without truncation
+      if (!hasRange && ctrl && ctrl.events) {
         for (let i = ctrl.events.length - 1; i >= 0; i--) {
           const e = ctrl.events[i];
           if (e.type === 'action' && e.tool === 'read' && e.input && e.input.path === input.path) {
-            if (e.output === content) return 'unchanged';
+            if (e.output === result) return 'unchanged';
             break;
           }
         }
       }
 
-      return content;
+      return result;
     },
   },
   {

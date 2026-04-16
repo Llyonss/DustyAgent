@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Novel Studio</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="layout">
+    <!-- Left: Bookshelf -->
+    <div id="shelf">
+      <div class="shelf-header">
+        <span>📚 书架</span>
+        <button class="shelf-add" onclick="createNovel()">+</button>
+      </div>
+      <div id="shelf-list"></div>
+    </div>
+
+    <!-- Center: Chat -->
+    <div id="chat">
+      <div id="chat-header">
+        <span id="novel-title">选择或创建一本小说</span>
+        <span id="cost-bar"></span>
+      </div>
+      <div id="events"></div>
+      <div id="input-bar">
+        <textarea id="msg" placeholder="输入消息... (Ctrl+Enter 发送)" rows="3"></textarea>
+        <div id="input-actions">
+          <button id="stop-btn" style="display:none" onclick="stopLoop()">停止</button>
+          <button id="send-btn" onclick="send()">发送</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Dashboard / Manuscript tabs -->
+    <div id="panel">
+      <div id="panel-tabs">
+        <button class="panel-tab active" data-tab="dashboard" onclick="switchTab('dashboard')">📊 仪表盘</button>
+        <button class="panel-tab" data-tab="manuscript" onclick="switchTab('manuscript')">📖 稿件</button>
+      </div>
+      <div id="panel-content">
+        <div id="tab-dashboard" class="tab-pane active"></div>
+        <div id="tab-manuscript" class="tab-pane"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create novel dialog -->
+  <div id="create-dialog" style="display:none">
+    <div class="dialog-backdrop" onclick="closeCreate()"></div>
+    <div class="dialog-box">
+      <div class="dialog-title">创建新小说</div>
+      <input id="create-name" placeholder="小说名称" />
+      <div class="dialog-buttons">
+        <button onclick="closeCreate()">取消</button>
+        <button class="primary" onclick="confirmCreate()">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chapter reader dialog -->
+  <div id="reader-dialog" style="display:none">
+    <div class="dialog-backdrop" onclick="closeReader()"></div>
+    <div class="dialog-box dialog-wide">
+      <div class="dialog-title" id="reader-title">📖 章节</div>
+      <div id="reader-content" class="md-content"></div>
+      <div class="dialog-buttons">
+        <button onclick="closeReader()">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- World browser dialog -->
+  <div id="world-dialog" style="display:none">
+    <div class="dialog-backdrop" onclick="closeWorld()"></div>
+    <div class="dialog-box dialog-world">
+      <div class="world-layout">
+        <div class="world-sidebar">
+          <div class="world-sidebar-tabs">
+            <button class="world-tab active" data-type="entities" onclick="switchWorldTab('entities')">🎭 实体</button>
+            <button class="world-tab" data-type="relations" onclick="switchWorldTab('relations')">🔗 关联</button>
+          </div>
+          <div id="world-list"></div>
+        </div>
+        <div class="world-main">
+          <div class="world-main-header">
+            <span id="world-item-name"></span>
+            <span id="world-item-badge"></span>
+          </div>
+          <div id="world-item-content" class="md-content"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/styles/github-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/highlight.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

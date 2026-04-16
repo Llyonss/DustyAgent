@@ -262,6 +262,17 @@ function renderSingleEvent(e) {
     return div;
   }
 
+  if (e.type === 'action' && e.tool === 'think') {
+    div.className = 'event think collapsed';
+    if (e.ts) div.dataset.ts = e.ts;
+    const content = typeof e.output === 'string' ? e.output : (typeof e.input === 'string' ? e.input : '');
+    div.innerHTML = '<div class="think-header" onclick="this.parentElement.classList.toggle(\'collapsed\')">'
+      + '<span class="think-toggle">▶</span> <span class="label">💭 思考</span>'
+      + '<span class="think-preview">' + esc(content.slice(0, 80)) + '</span></div>'
+      + '<div class="think-body"><div class="md-content">' + renderMarkdown(content) + '</div></div>';
+    return div;
+  }
+
   if (e.type === 'error') {
     div.className = 'event error';
     div.innerHTML = '<div class="label">⚠ Error</div>' + esc(e.message || '')
@@ -275,7 +286,7 @@ function renderSingleEvent(e) {
     return div;
   }
 
-  if (e.type === 'action' && e.tool !== 'stop' && e.tool !== 'wait' && e.tool !== 'commit') {
+  if (e.type === 'action' && e.tool !== 'stop' && e.tool !== 'wait' && e.tool !== 'commit' && e.tool !== 'think') {
     div.className = 'event tool';
     const inputStr = typeof e.input === 'string' ? e.input : JSON.stringify(e.input);
     const outputStr = String(e.output);
@@ -293,6 +304,12 @@ function renderEvents(events) {
   const expandedSet = new Set();
   eventsDiv.querySelectorAll('.apply-section').forEach((el, i) => {
     if (!el.classList.contains('collapsed')) expandedSet.add(i);
+  });
+
+  // Remember which think events were expanded
+  const expandedThinks = new Set();
+  eventsDiv.querySelectorAll('.event.think:not(.collapsed)').forEach(el => {
+    if (el.dataset.ts) expandedThinks.add(el.dataset.ts);
   });
 
   eventsDiv.innerHTML = '';
@@ -344,6 +361,13 @@ function renderEvents(events) {
         if (el) eventsDiv.appendChild(el);
       }
     }
+  }
+
+  // Restore expanded think events
+  if (expandedThinks.size > 0) {
+    eventsDiv.querySelectorAll('.event.think[data-ts]').forEach(el => {
+      if (expandedThinks.has(el.dataset.ts)) el.classList.remove('collapsed');
+    });
   }
 
   // Refresh doc panel if visible
@@ -453,6 +477,10 @@ function highlightStudyText(container, highlights) {
   }
 }
 
+function isNearBottom() {
+  return eventsDiv.scrollHeight - eventsDiv.scrollTop - eventsDiv.clientHeight < 80;
+}
+
 function scrollToBottom() {
   eventsDiv.scrollTop = eventsDiv.scrollHeight;
 }
@@ -465,6 +493,7 @@ async function poll() {
   if (pollRunning) return; // prevent overlapping polls
   pollRunning = true;
   try {
+    const wasAtBottom = isNearBottom();
     const res = await fetch('/api/events?instance=' + encodeURIComponent(currentInstance));
     const data = await res.json();
     const json = JSON.stringify(data.events);
@@ -479,7 +508,7 @@ async function poll() {
       } else {
         renderEvents(data.events);
       }
-      scrollToBottom();
+      if (wasAtBottom) scrollToBottom();
     }
     stopBtn.style.display = data.running ? '' : 'none';
     // Adaptive poll rate: faster when running
@@ -520,7 +549,19 @@ function tryIncrementalUpdate(prevEvents, newEvents) {
     }
   }
 
-  if (last.type === 'action' && last.tool !== 'speak' && last.tool !== 'stop' && last.tool !== 'wait' && last.tool !== 'commit') {
+  if (last.type === 'action' && last.tool === 'think') {
+    // Update think content in-place
+    const bodyDiv = lastEl.querySelector('.think-body .md-content');
+    const previewSpan = lastEl.querySelector('.think-preview');
+    if (bodyDiv && lastEl.classList.contains('think')) {
+      const content = typeof last.output === 'string' ? last.output : (typeof last.input === 'string' ? last.input : '');
+      bodyDiv.innerHTML = renderMarkdown(content);
+      if (previewSpan) previewSpan.textContent = content.slice(0, 80);
+      return true;
+    }
+  }
+
+  if (last.type === 'action' && last.tool !== 'speak' && last.tool !== 'stop' && last.tool !== 'wait' && last.tool !== 'commit' && last.tool !== 'think') {
     // Update tool event in-place
     if (lastEl.classList.contains('tool')) {
       const inputDiv = lastEl.querySelector('.tool-input');

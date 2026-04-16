@@ -5,6 +5,8 @@ const createDocTools = require('./tool-apply');
 const toolLoop = require('../../hooks/tool-loop');
 const toolCmd = require('../../hooks/tool-cmd');
 const toolFile = require('../../hooks/tool-file');
+const toolMedia = require('../../hooks/tool-media');
+const { tools: eyeTools, injectEye } = require('../../hooks/tool-eye');
 const createLog = require('../../hooks/output-log');
 const { readEvents } = require('../../core/event');
 
@@ -14,7 +16,7 @@ module.exports = function(instanceDir) {
   const eventsDir = path.join(instanceDir, 'events');
   const log = createLog(instanceDir);
   const docTools = createDocTools(docPath, draftPath);
-  const tools = [...docTools, ...toolLoop, ...toolCmd, ...toolFile];
+  const tools = [...docTools, ...toolLoop, ...toolCmd, ...toolFile, ...toolMedia, ...eyeTools];
 
   // Ensure draft exists (working copy for apply/patch).
   // If draft already exists (e.g. crash recovery), keep it to preserve uncommitted edits.
@@ -52,20 +54,20 @@ module.exports = function(instanceDir) {
 
       if (commits.length > 0) {
         const historyText = commits.map((a, i) =>
-          'v' + (i + 1) + ': ' + (a.input && a.input.summary || '(no summary)')
+          'v' + (i + 1) + ': ' + (a.input && a.input.summary || '(无经历)')
         ).join('\n');
         prefix.push(
-          { role: 'user', content: [{ type: 'text', text: 'Version history:\n' + historyText }] },
-          { role: 'assistant', content: [{ type: 'text', text: 'Noted.' }] },
+          { role: 'user', content: [{ type: 'text', text: '过往经历\n' + historyText }] },
+          { role: 'assistant', content: [{ type: 'text', text: '收到。' }] },
         );
       }
 
       prefix.push(
-        { role: 'user', content: [{ type: 'text', text: 'Current document:\n<document>\n' + (doc || '(empty)') + '\n</document>' }] },
-        { role: 'assistant', content: [{ type: 'text', text: 'I see the document. How would you like to proceed?' }] },
+        { role: 'user', content: [{ type: 'text', text: '请根据以下心智模型行动:\n<心智>\n' + (doc || '(空)') + '\n</心智>' }] },
+        { role: 'assistant', content: [{ type: 'text', text: '好的, 我会以我的心智模型独立思考并行动, 以心智模型为主去审视吸收信息, 并多和用户讨论, 持续学习成长。' }] },
       );
 
-      return [...prefix, ...messages];
+      return injectEye([...prefix, ...messages]);
     },
 
     output: (turn) => log.output(turn),

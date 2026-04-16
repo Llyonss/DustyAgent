@@ -77,6 +77,64 @@ describe('read', () => {
     const result = await getTool('read').execute({ path: fp }, ctrl);
     assert.strictEqual(result, 'hello world');
   });
+
+  it('from_line/to_line returns specified range', async () => {
+    const fp = path.join(tmpDir, 'range.txt');
+    const lines = Array.from({ length: 10 }, (_, i) => `line${i + 1}`);
+    fs.writeFileSync(fp, lines.join('\n'));
+    const result = await getTool('read').execute({ path: fp, from_line: 3, to_line: 5 });
+    assert.strictEqual(result, 'line3\nline4\nline5');
+  });
+
+  it('from_line only reads to end', async () => {
+    const fp = path.join(tmpDir, 'range.txt');
+    fs.writeFileSync(fp, 'a\nb\nc\nd\ne');
+    const result = await getTool('read').execute({ path: fp, from_line: 4 });
+    assert.strictEqual(result, 'd\ne');
+  });
+
+  it('to_line only reads from start', async () => {
+    const fp = path.join(tmpDir, 'range.txt');
+    fs.writeFileSync(fp, 'a\nb\nc\nd\ne');
+    const result = await getTool('read').execute({ path: fp, to_line: 2 });
+    assert.strictEqual(result, 'a\nb');
+  });
+
+  it('truncates when exceeding 500 lines', async () => {
+    const fp = path.join(tmpDir, 'big.txt');
+    const lines = Array.from({ length: 800 }, (_, i) => `line${i + 1}`);
+    fs.writeFileSync(fp, lines.join('\n'));
+    const result = await getTool('read').execute({ path: fp });
+    assert.ok(result.includes('[truncated:'));
+    assert.ok(result.includes('of 800 lines'));
+    // Should contain first 500 lines
+    assert.ok(result.includes('line1\n'));
+    assert.ok(result.includes('line500\n'));
+    assert.ok(!result.includes('line501\n'));
+  });
+
+  it('truncates when exceeding 30000 chars', async () => {
+    const fp = path.join(tmpDir, 'wide.txt');
+    // 50 lines of 1000 chars each = 50000 chars total, should truncate by char limit
+    const lines = Array.from({ length: 50 }, (_, i) => `L${i + 1}:${'x'.repeat(997)}`);
+    fs.writeFileSync(fp, lines.join('\n'));
+    const result = await getTool('read').execute({ path: fp });
+    assert.ok(result.includes('[truncated:'));
+    assert.ok(result.includes('of 50 lines'));
+  });
+
+  it('skips unchanged check when using line range', async () => {
+    const fp = path.join(tmpDir, 'test.txt');
+    fs.writeFileSync(fp, 'a\nb\nc');
+    const ctrl = {
+      events: [
+        { type: 'action', tool: 'read', input: { path: fp }, output: 'a\nb\nc' },
+      ],
+    };
+    // With range param, should NOT return 'unchanged' even if content matches
+    const result = await getTool('read').execute({ path: fp, from_line: 1, to_line: 3 }, ctrl);
+    assert.strictEqual(result, 'a\nb\nc');
+  });
 });
 
 describe('edit', () => {

@@ -1,6 +1,41 @@
 const Anthropic = require('@anthropic-ai/sdk');
 require('dotenv').config();
 
+// --- Adapter registry ---
+// Each adapter provides: client (extra Anthropic constructor options), params (extra request body fields)
+// Activate via LLM_ADAPTER=<name> in .env
+const adapters = {
+  'claude-code': {
+    client: {
+      apiKey: 'placeholder',
+      defaultHeaders: {
+        'authorization': `Bearer ${process.env.LLM_API_KEY}`,
+        'anthropic-beta': 'oauth-2025-04-20,interleaved-thinking-2025-05-14',
+        'anthropic-dangerous-direct-browser-access': 'true',
+        'user-agent': 'claude-cli/2.1.76 (external, cli)',
+        'x-app': 'cli',
+        'x-api-key': undefined,
+        'x-stainless-lang': undefined,
+        'x-stainless-package-version': undefined,
+        'x-stainless-os': undefined,
+        'x-stainless-arch': undefined,
+        'x-stainless-runtime': undefined,
+        'x-stainless-runtime-version': undefined,
+        'x-stainless-retry-count': undefined,
+        'x-stainless-timeout': undefined,
+      },
+    },
+    params: {
+      max_tokens: 16000,
+      thinking: { type: 'enabled', budget_tokens: 10000 },
+    },
+  },
+};
+
+const adapter = adapters[process.env.LLM_ADAPTER] || {};
+const adapterClient = adapter.client || {};
+const adapterParams = adapter.params || { max_tokens: 64000, eager_input_streaming: true };
+
 let client = null;
 
 function getClient() {
@@ -8,6 +43,7 @@ function getClient() {
     client = new Anthropic({
       apiKey: process.env.LLM_API_KEY,
       baseURL: process.env.LLM_BASE_URL,
+      ...adapterClient,
     });
   }
   return client;
@@ -26,12 +62,10 @@ async function* infer(prompt, { signal } = {}) {
   try {
     stream = await getClient().messages.create({
       model: process.env.LLM_MODEL,
-      max_tokens: 64000,
+      ...adapterParams,
       ...prompt,
       stream: true,
-      eager_input_streaming: true,
-      signal,
-    });
+    }, { signal });
   } catch (e) {
     yield { type: 'error', message: formatError(e) };
     return;

@@ -5,11 +5,14 @@
   "scripts": {
     "cli": "node src/cli/index.js",
     "web": "node src/web/index.js",
+    "novel": "node src/agent/novel/web/index.js",
     "test": "node --test src/tests/test-event.js src/tests/test-prompt.js src/tests/test-action.js src/tests/test-infer.js src/tests/test-loop.js src/tests/test-web-abort.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@google/genai": "^1.49.0",
     "dotenv": "^16.4.7",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "sharp": "^0.34.5"
   }
 }

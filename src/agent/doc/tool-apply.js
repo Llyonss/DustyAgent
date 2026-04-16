@@ -12,7 +12,9 @@ module.exports = function(docPath, draftPath) {
       description: '展示当前草稿的心智内容。',
       input_schema: {
         type: 'object',
-        properties: {},
+        properties: {
+            reason: { type: 'string', description: '原因' },
+        },
         required: [],
       },
       execute: async () => {

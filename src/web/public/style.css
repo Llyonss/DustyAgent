@@ -240,6 +240,63 @@ body {
   background: #2a0a0a;
 }
 
+/* ===== Think Bubble ===== */
+.event.think {
+  background: #121218;
+  border: 1px solid #252530;
+  padding: 0;
+  max-width: 85%;
+}
+
+.event.think .think-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.event.think .think-header:hover { background: #1a1a1a; }
+
+.event.think .think-toggle {
+  font-size: 10px;
+  color: #555;
+  width: 12px;
+  transition: transform 0.15s;
+}
+
+.event.think:not(.collapsed) .think-toggle { transform: rotate(90deg); }
+
+.event.think .label {
+  color: #9a9aad;
+  flex-shrink: 0;
+}
+
+.event.think .think-preview {
+  color: #6a6a7a;
+  font-size: 12px;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.event.think:not(.collapsed) .think-preview { display: none; }
+
+.event.think .think-body {
+  border-top: 1px solid #1e1e1e;
+  padding: 12px 16px;
+}
+
+.event.think.collapsed .think-body { display: none; }
+
+.event.think .think-body .md-content {
+  color: #b0b0be;
+  font-size: 13px;
+}
+
 .event.tool {
   background: #0a0a0a;
   border: 1px solid #1e1e1e;

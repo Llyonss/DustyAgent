@@ -16,6 +16,7 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
   const ctrl = {
     stop: () => { running = false; },
     wait: (seconds) => { waitMs = seconds * 1000; },
+    signal,
   };
 
   while (running) {
@@ -25,7 +26,7 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
     const filtered = hooks.events ? hooks.events(events) : events;
     ctrl.events = filtered;
     const raw = buildMessages(filtered);
-    const messages = hooks.messages ? hooks.messages(raw) : raw;
+    const messages = hooks.messages ? await hooks.messages(raw) : raw;
     const rawSystem = hooks.system ? hooks.system() : undefined;
     const instanceName = path.basename(instanceDir);
     const instanceInfo = { type: 'text', text: `\nInstance: ${instanceName}, instanceDir: ${instanceDir}` };
