@@ -58,10 +58,12 @@ function buildMessages(events) {
   }
 
   // Cache control on last two user messages
+  // Last: 5min (always new content, cheap write); 2nd-to-last: 1h (stable prefix, survives idle gaps)
   let cacheCount = 0;
   for (let j = messages.length - 1; j >= 0 && cacheCount < 2; j--) {
     if (messages[j].role === 'user' && messages[j].content.length > 0) {
-      messages[j].content[messages[j].content.length - 1].cache_control = { type: 'ephemeral' };
+      const ttl = cacheCount === 0 ? '5m' : '1h';
+      messages[j].content[messages[j].content.length - 1].cache_control = { type: 'ephemeral', ttl };
       cacheCount++;
     }
   }

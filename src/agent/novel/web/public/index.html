@@ -22,6 +22,7 @@
       <div id="chat-header">
         <span id="novel-title">选择或创建一本小说</span>
         <span id="cost-bar"></span>
+        <button id="panel-toggle" onclick="togglePanel()">📊</button>
       </div>
       <div id="events"></div>
       <div id="input-bar">
@@ -65,7 +66,9 @@
     <div class="dialog-box dialog-wide">
       <div class="dialog-title" id="reader-title">📖 章节</div>
       <div id="reader-content" class="md-content"></div>
-      <div class="dialog-buttons">
+      <textarea id="reader-editor" class="inline-editor" style="display:none" spellcheck="false"></textarea>
+      <div class="dialog-buttons" id="reader-buttons">
+        <button onclick="editChapter()">✏️ 编辑</button>
         <button onclick="closeReader()">关闭</button>
       </div>
     </div>
@@ -89,8 +92,36 @@
             <span id="world-item-badge"></span>
           </div>
           <div id="world-item-content" class="md-content"></div>
+          <textarea id="world-editor" class="inline-editor" style="display:none" spellcheck="false"></textarea>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- History events dialog -->
+  <div id="history-events-dialog" style="display:none">
+    <div class="dialog-backdrop" onclick="closeHistoryEvents()"></div>
+    <div class="dialog-box dialog-wide">
+      <div class="dialog-title" id="history-events-title">📋 事件记录</div>
+      <div id="history-events-content"></div>
+      <div class="dialog-buttons">
+        <button onclick="closeHistoryEvents()">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Editor dialog -->
+  <div id="editor-dialog" style="display:none">
+    <div class="dialog-backdrop" onclick="closeEditor()"></div>
+    <div class="dialog-box dialog-editor">
+      <div class="editor-header">
+        <div class="dialog-title" id="editor-title">✏️ 编辑</div>
+        <div class="editor-actions">
+          <button onclick="saveEditor()">💾 保存</button>
+          <button onclick="closeEditor()">关闭</button>
+        </div>
+      </div>
+      <textarea id="editor-area" spellcheck="false"></textarea>
     </div>
   </div>
 

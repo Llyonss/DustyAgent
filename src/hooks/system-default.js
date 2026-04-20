@@ -4,4 +4,4 @@ const ENV_INFO = `\nEnvironment: ${os.platform()}/${os.arch()}, shell: ${os.plat
 
 const SYSTEM = 'You are a ReAct agent. You accomplish tasks by using tools.' + ENV_INFO;
 
-module.exports = () => [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }];
+module.exports = () => [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral', ttl: '1h' } }];

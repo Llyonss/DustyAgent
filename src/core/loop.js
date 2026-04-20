@@ -37,7 +37,7 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
     if (system) prompt.system = system;
     if (tools.length > 0) {
       prompt.tools = tools.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
-      prompt.tools.at(-1).cache_control = { type: 'ephemeral' };
+      prompt.tools.at(-1).cache_control = { type: 'ephemeral', ttl: '1h' };
     }
 
     const start = Date.now();

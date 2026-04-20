@@ -6,6 +6,79 @@ const { infer } = require('../../../core/infer');
 module.exports = function(instanceDir) {
   return [
     {
+      name: 'recall',
+      description: `回忆工具。查找你对某文件最后一次 read/write 的记录，并顺序应用之后的 edit 操作，重建出你上次已知的文件完整状态。
+也可用于查看从未直接读写过的文件（如 history/ 下的经历档案）。支持绝对路径或相对于小说目录的路径。`,
+      input_schema: {
+        type: 'object',
+        properties: {
+          file: { type: 'string', description: '文件路径（绝对路径或相对于小说目录）' },
+        },
+        required: ['file'],
+      },
+      execute: async (input) => {
+        const filePath = path.isAbsolute(input.file)
+          ? path.normalize(input.file)
+          : path.normalize(path.join(instanceDir, input.file));
+        const eventsDir = path.join(instanceDir, 'events');
+        let files;
+        try {
+          files = fs.readdirSync(eventsDir)
+            .filter(f => f.startsWith('event.') && f.endsWith('.json')).sort();
+        } catch { return '未找到事件目录。'; }
+
+        // Reverse scan: find last read/write for this file
+        let baseContent = null;
+        let baseIndex = -1;
+        for (let i = files.length - 1; i >= 0; i--) {
+          const evt = JSON.parse(fs.readFileSync(path.join(eventsDir, files[i]), 'utf-8'));
+          if (evt.type !== 'action') continue;
+          const ep = evt.input?.path ? path.normalize(evt.input.path) : null;
+          if (ep !== filePath) continue;
+          if (evt.tool === 'read' && typeof evt.output === 'string' && evt.output !== 'unchanged') {
+            baseContent = evt.output;
+            baseIndex = i;
+            break;
+          }
+          if (evt.tool === 'write' && typeof evt.input?.content === 'string') {
+            baseContent = evt.input.content;
+            baseIndex = i;
+            break;
+          }
+        }
+        if (baseContent === null) {
+          // Fallback: file exists but never read/written via tools (e.g. history files from commit)
+          try { return fs.readFileSync(filePath, 'utf-8'); } catch {}
+          return '未找到该文件的历史记录。';
+        }
+
+        // Forward scan: apply subsequent edits
+        for (let i = baseIndex + 1; i < files.length; i++) {
+          const evt = JSON.parse(fs.readFileSync(path.join(eventsDir, files[i]), 'utf-8'));
+          if (evt.type !== 'action' || evt.tool !== 'edit' || evt.error) continue;
+          const ep = evt.input?.path ? path.normalize(evt.input.path) : null;
+          if (ep !== filePath) continue;
+          const old = evt.input?.old, rep = evt.input?.new;
+          if (typeof old === 'string' && typeof rep === 'string' && baseContent.includes(old)) {
+            baseContent = baseContent.replace(old, rep);
+          }
+        }
+
+        // Truncate like read tool
+        const lines = baseContent.split('\n');
+        let chars = 0, n = 0;
+        for (; n < lines.length; n++) {
+          chars += lines[n].length + 1;
+          if (n + 1 >= 500 || chars >= 30000) { n++; break; }
+        }
+        if (n < lines.length) {
+          return lines.slice(0, n).join('\n')
+            + `\n[truncated: 1-${n} of ${lines.length} lines]`;
+        }
+        return baseContent;
+      },
+    },
+    {
       name: 'commit',
       description: `提交当前会话。效果：
 1. 自动将 title/story/changes 写入经历档案（history/vXX.md）
@@ -76,12 +149,12 @@ module.exports = function(instanceDir) {
         const ctx = [];
         if (outline) ctx.push(`## 大纲\n${outline}`);
         if (entities) ctx.push(`## 人物\n${entities}`);
-        if (style) ctx.push(`## 文风要求\n${style}`);
+        if (style) ctx.push(`## 写作要求\n${style}`);
         ctx.push(`## 描写要求\n${input.prompt}`);
 
         const prompt = {
           messages: [{ role: 'user', content: ctx.join('\n\n---\n\n') }],
-          system: [{ type: 'text', text: '你是一位小说作家。根据提供的大纲、人物、文风要求，按描写要求写一段小说片段。只输出小说文本，不要解释。' }],
+          system: [{ type: 'text', text: '你是一位小说作家。根据提供的大纲、人物、写作要求，按描写要求写一段小说片段。只输出小说文本，不要解释。' }],
         };
 
         let text = '';

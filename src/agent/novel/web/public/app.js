@@ -75,6 +75,13 @@ async function confirmCreate() {
   switchNovel(name);
 }
 
+// ===== Panel Toggle (mobile) =====
+function togglePanel() {
+  const panel = document.getElementById('panel');
+  panel.classList.toggle('mobile-open');
+  if (panel.classList.contains('mobile-open')) pollDashboard();
+}
+
 // ===== Tab Switching =====
 function switchTab(tab) {
   activeTab = tab;
@@ -133,6 +140,15 @@ function renderSingleEvent(e) {
   if (e.type === 'action' && e.error) {
     div.className = 'event error';
     div.innerHTML = '<div class="label">⚠ ' + esc(e.tool) + '</div>' + esc(e.output || '');
+    return div;
+  }
+
+  // test_style — full card with prompt header + md body
+  if (e.type === 'action' && e.tool === 'test_style' && !e.error) {
+    div.className = 'event style-test';
+    const prompt = e.input?.prompt || '';
+    div.innerHTML = '<div class="style-test-prompt">🎨 ' + esc(prompt) + '</div>'
+      + '<div class="style-test-output md-content">' + md(e.output || '') + '</div>';
     return div;
   }
 
@@ -195,6 +211,10 @@ function tryIncrementalUpdate(prev, next) {
       return true;
     }
   }
+  if (last.type === 'action' && last.tool === 'test_style' && lastEl.classList.contains('style-test')) {
+    const out = lastEl.querySelector('.style-test-output');
+    if (out) { out.innerHTML = md(last.output || ''); return true; }
+  }
   if (last.type === 'action' && lastEl.classList.contains('tool')) {
     const inp = lastEl.querySelector('.tool-input'), out = lastEl.querySelector('.tool-output');
     if (inp && out) {
@@ -208,6 +228,7 @@ function tryIncrementalUpdate(prev, next) {
 
 // ===== Polling =====
 let prevEvents = [];
+let allEvents = [];
 
 async function poll() {
   if (pollRunning || !currentNovel) return;
@@ -216,12 +237,21 @@ async function poll() {
     const wasBottom = isNearBottom();
     const res = await fetch('/api/events?novel=' + encodeURIComponent(currentNovel));
     const data = await res.json();
-    const json = JSON.stringify(data.events);
+    allEvents = data.events;
+    // Truncate at last commit — match novel agent's hooks.events
+    let visible = data.events;
+    for (let i = visible.length - 1; i >= 0; i--) {
+      if (visible[i].type === 'action' && visible[i].tool === 'commit' && !visible[i].error) {
+        visible = visible.slice(i + 1);
+        break;
+      }
+    }
+    const json = JSON.stringify(visible);
     if (json !== lastEventsJSON) {
       const prev = prevEvents;
       lastEventsJSON = json;
-      prevEvents = data.events;
-      if (!tryIncrementalUpdate(prev, data.events)) renderEvents(data.events);
+      prevEvents = visible;
+      if (!tryIncrementalUpdate(prev, visible)) renderEvents(visible);
       if (wasBottom) eventsDiv.scrollTop = eventsDiv.scrollHeight;
     }
     stopBtn.style.display = data.running ? '' : 'none';
@@ -252,13 +282,13 @@ function renderDashboard(data) {
   let html = '';
 
   // Outline
-  html += '<div class="dash-section dash-outline"><div class="dash-section-title">📋 大纲</div>';
-  html += data.outline ? '<div class="md-content">' + md(data.outline) + '</div>' : '<div class="dash-empty">尚未创建大纲</div>';
+  html += '<div class="dash-section dash-outline"><div class="dash-section-title">📋 大纲 <button class="dash-edit-btn" onclick="editNovelFile(\'大纲\', \'outline.md\')">✏️</button></div>';
+  html += data.outline ? '<div class="md-content">' + md(data.outline) + '</div>' : '<div class="dash-empty">尚未创建大纲 <button class="dash-edit-btn" onclick="editNovelFile(\'大纲\', \'outline.md\')">✏️ 创建</button></div>';
   html += '</div>';
 
   // Style
-  html += '<div class="dash-section"><div class="dash-section-title">✍️ 文风</div>';
-  html += data.style ? '<div class="md-content">' + md(data.style) + '</div>' : '<div class="dash-empty">尚未设定文风</div>';
+  html += '<div class="dash-section"><div class="dash-section-title">✍️ 文风 <button class="dash-edit-btn" onclick="editNovelFile(\'文风\', \'style.md\')">✏️</button></div>';
+  html += data.style ? '<div class="md-content">' + md(data.style) + '</div>' : '<div class="dash-empty">尚未设定文风 <button class="dash-edit-btn" onclick="editNovelFile(\'文风\', \'style.md\')">✏️ 创建</button></div>';
   html += '</div>';
 
   // Entities
@@ -291,21 +321,19 @@ function renderDashboard(data) {
   } else { html += '<div class="dash-empty">暂无关联</div>'; }
   html += '</div>';
 
-  // Histories (expandable)
+  // Histories
   html += '<div class="dash-section"><div class="dash-section-title">📝 经历档案</div>';
   if (data.histories && data.histories.length > 0) {
-    for (const h of data.histories) {
+    for (let i = 0; i < data.histories.length; i++) {
+      const h = data.histories[i];
       const title = h.meta?.title || h.meta?.summary || h.name;
       const changes = Array.isArray(h.meta?.changes) ? h.meta.changes.join(', ') : '';
-      const hasBody = h.body && h.body.trim();
-      html += '<div class="history-item' + (hasBody ? ' expandable' : '') + '"'
-        + (hasBody ? ' onclick="this.classList.toggle(\'expanded\')"' : '') + '>'
+      html += '<div class="history-item">'
         + '<div class="history-header">'
-        + '<span class="history-toggle">' + (hasBody ? '▶' : '·') + '</span> '
-        + '<strong>' + esc(h.file) + '</strong>: ' + esc(title)
+        + '<strong>v' + (i + 1) + '</strong>: ' + esc(title)
+        + ' <button class="history-events-btn" onclick="event.stopPropagation();openHistoryEvents(' + i + ')" title="查看事件">📋</button>'
         + '</div>';
       if (changes) html += '<div class="history-changes">' + esc(changes) + '</div>';
-      if (hasBody) html += '<div class="history-body"><div class="md-content">' + md(h.body) + '</div></div>';
       html += '</div>';
     }
   } else { html += '<div class="dash-empty">暂无经历</div>'; }
@@ -331,6 +359,7 @@ function renderManuscript(data) {
 
 // ===== Chapter Reader =====
 let novelBasePath = ''; // cached from server
+let readerRawContent = ''; // raw content for inline editing
 
 async function ensureNovelPath() {
   if (novelBasePath) return novelBasePath;
@@ -349,10 +378,50 @@ async function openChapter(novel, vol, file) {
   try {
     const res = await fetch('/api/file?path=' + encodeURIComponent(filePath));
     const data = await res.json();
+    readerRawContent = data.content || '';
     document.getElementById('reader-title').textContent = '📖 ' + file.replace(/\.md$/, '');
-    document.getElementById('reader-content').innerHTML = '<div class="md-content">' + md(data.content) + '</div>';
+    document.getElementById('reader-content').innerHTML = '<div class="md-content">' + md(readerRawContent) + '</div>';
+    document.getElementById('reader-content').style.display = '';
+    document.getElementById('reader-editor').style.display = 'none';
+    document.getElementById('reader-buttons').innerHTML =
+      '<button onclick="editChapter()">✏️ 编辑</button><button onclick="closeReader()">关闭</button>';
     document.getElementById('reader-dialog').style.display = '';
+    document.getElementById('reader-dialog').dataset.path = filePath;
   } catch {}
+}
+
+function editChapter() {
+  document.getElementById('reader-content').style.display = 'none';
+  const ed = document.getElementById('reader-editor');
+  ed.style.display = '';
+  ed.value = readerRawContent;
+  document.getElementById('reader-buttons').innerHTML =
+    '<button class="primary" onclick="saveChapter()">💾 保存</button><button onclick="cancelChapterEdit()">取消</button>';
+  ed.focus();
+}
+
+async function saveChapter() {
+  const filePath = document.getElementById('reader-dialog').dataset.path;
+  if (!filePath) return;
+  const content = document.getElementById('reader-editor').value;
+  try {
+    await fetch('/api/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath, content }),
+    });
+    readerRawContent = content;
+    document.getElementById('reader-content').innerHTML = '<div class="md-content">' + md(content) + '</div>';
+    cancelChapterEdit();
+    pollDashboard();
+  } catch (e) { alert('保存失败: ' + e.message); }
+}
+
+function cancelChapterEdit() {
+  document.getElementById('reader-content').style.display = '';
+  document.getElementById('reader-editor').style.display = 'none';
+  document.getElementById('reader-buttons').innerHTML =
+    '<button onclick="editChapter()">✏️ 编辑</button><button onclick="closeReader()">关闭</button>';
 }
 
 function closeReader() { document.getElementById('reader-dialog').style.display = 'none'; }
@@ -383,6 +452,32 @@ async function pollUsage() {
       + (totalSaved > 0 ? '<span class="cost-saved">省 $' + totalSaved.toFixed(4) + '</span>' : '')
       + '<span class="cost-last">本次 $' + last.cost.toFixed(4) + '</span>';
   } catch {}
+}
+
+// ===== History Events Viewer =====
+function openHistoryEvents(index) {
+  const commits = [];
+  for (let i = 0; i < allEvents.length; i++) {
+    if (allEvents[i].type === 'action' && allEvents[i].tool === 'commit' && !allEvents[i].error) {
+      commits.push(i);
+    }
+  }
+  const start = index === 0 ? 0 : (commits[index - 1] != null ? commits[index - 1] + 1 : 0);
+  const end = commits[index] != null ? commits[index] + 1 : allEvents.length;
+  const segment = allEvents.slice(start, end);
+
+  const container = document.getElementById('history-events-content');
+  container.innerHTML = '';
+  for (const e of segment) {
+    const el = renderSingleEvent(e);
+    if (el) container.appendChild(el);
+  }
+  document.getElementById('history-events-title').textContent = '📋 v' + (index + 1) + ' 事件记录';
+  document.getElementById('history-events-dialog').style.display = '';
+}
+
+function closeHistoryEvents() {
+  document.getElementById('history-events-dialog').style.display = 'none';
 }
 
 // ===== Send / Stop / Retry =====
@@ -417,6 +512,8 @@ async function stopLoop() {
 // ===== World Browser =====
 let worldData = { entities: [], relations: [] };
 let worldTab = 'entities';
+let worldEditPath = '';
+let worldEditName = '';
 
 function openWorld(type, name) {
   worldData = JSON.parse(lastDashJSON || '{}');
@@ -458,10 +555,111 @@ function selectWorldItem(name) {
   if (!item) return;
   document.getElementById('world-item-name').textContent = item.name;
   const st = item.meta?.status || 'active';
-  document.getElementById('world-item-badge').innerHTML = '<span class="status-badge status-' + st + '">' + st + '</span>';
+  document.getElementById('world-item-badge').innerHTML = '<span class="status-badge status-' + st + '">' + st + '</span>'
+    + ' <button class="world-edit-btn" onclick="editWorldItem(\'' + esc(worldTab) + '\',\'' + esc(item.name) + '\')">✏️ 编辑</button>';
   const inv = Array.isArray(item.meta?.involves) ? '<div class="world-involves">↔ ' + esc(item.meta.involves.join(', ')) + '</div>' : '';
   document.getElementById('world-item-content').innerHTML = inv + '<div class="md-content">' + md(item.body) + '</div>';
   document.querySelectorAll('.world-list-item').forEach(el => el.classList.toggle('active', el.dataset.name === name));
+}
+
+async function editWorldItem(type, name) {
+  const base = await ensureNovelPath();
+  if (!base) return;
+  worldEditPath = base + '\\world\\' + type + '\\' + name + '.md';
+  worldEditName = name;
+  try {
+    const res = await fetch('/api/file?path=' + encodeURIComponent(worldEditPath));
+    const data = await res.json();
+    document.getElementById('world-item-content').style.display = 'none';
+    const ed = document.getElementById('world-editor');
+    ed.style.display = '';
+    ed.value = data.content || '';
+    document.getElementById('world-item-badge').innerHTML =
+      '<button class="world-edit-btn" style="border-color:#9ece6a;color:#9ece6a" onclick="saveWorldItem()">💾 保存</button>'
+      + ' <button class="world-edit-btn" onclick="cancelWorldEdit()">取消</button>';
+    ed.focus();
+  } catch {}
+}
+
+async function saveWorldItem() {
+  if (!worldEditPath) return;
+  const content = document.getElementById('world-editor').value;
+  try {
+    await fetch('/api/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: worldEditPath, content }),
+    });
+    document.getElementById('world-item-content').style.display = '';
+    document.getElementById('world-editor').style.display = 'none';
+    await pollDashboard();
+    worldData = JSON.parse(lastDashJSON || '{}');
+    selectWorldItem(worldEditName);
+    worldEditPath = '';
+  } catch (e) { alert('保存失败: ' + e.message); }
+}
+
+function cancelWorldEdit() {
+  document.getElementById('world-item-content').style.display = '';
+  document.getElementById('world-editor').style.display = 'none';
+  selectWorldItem(worldEditName);
+  worldEditPath = '';
+}
+
+// ===== File Editor =====
+let editorPath = '';
+
+async function openEditor(title, filePath) {
+  editorPath = filePath;
+  document.getElementById('editor-title').textContent = '✏️ ' + title;
+  try {
+    const res = await fetch('/api/file?path=' + encodeURIComponent(filePath));
+    const data = await res.json();
+    document.getElementById('editor-area').value = data.content || '';
+  } catch {
+    document.getElementById('editor-area').value = '';
+  }
+  document.getElementById('editor-dialog').style.display = '';
+  document.getElementById('editor-area').focus();
+}
+
+function closeEditor() {
+  document.getElementById('editor-dialog').style.display = 'none';
+  editorPath = '';
+}
+
+async function saveEditor() {
+  if (!editorPath) return;
+  const content = document.getElementById('editor-area').value;
+  try {
+    await fetch('/api/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: editorPath, content }),
+    });
+    closeEditor();
+    pollDashboard();
+  } catch (e) { alert('保存失败: ' + e.message); }
+}
+
+// Shared editor keyboard: Ctrl+S save, Tab indent
+function handleEditorKeydown(e, saveFn) {
+  if (e.key === 's' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveFn(); }
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const ta = e.target, start = ta.selectionStart, end = ta.selectionEnd;
+    ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
+    ta.selectionStart = ta.selectionEnd = start + 2;
+  }
+}
+document.getElementById('editor-area').addEventListener('keydown', e => handleEditorKeydown(e, saveEditor));
+document.getElementById('reader-editor').addEventListener('keydown', e => handleEditorKeydown(e, saveChapter));
+document.getElementById('world-editor').addEventListener('keydown', e => handleEditorKeydown(e, saveWorldItem));
+
+async function editNovelFile(title, relativePath) {
+  const base = await ensureNovelPath();
+  if (!base) return;
+  openEditor(title, base + '\\' + relativePath.replace(/\//g, '\\'));
 }
 
 // ===== Events =====

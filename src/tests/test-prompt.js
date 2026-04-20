@@ -118,7 +118,7 @@ describe('buildMessages', () => {
     const msgs = buildMessages(events);
     const lastMsg = msgs[msgs.length - 1];
     const lastBlock = lastMsg.content[lastMsg.content.length - 1];
-    assert.deepStrictEqual(lastBlock.cache_control, { type: 'ephemeral' });
+    assert.deepStrictEqual(lastBlock.cache_control, { type: 'ephemeral', ttl: '5m' });
   });
 
   it('cache_control is on last user message even with tool_results', () => {
@@ -130,7 +130,7 @@ describe('buildMessages', () => {
     const lastUser = msgs[msgs.length - 1];
     assert.strictEqual(lastUser.role, 'user');
     const lastBlock = lastUser.content[lastUser.content.length - 1];
-    assert.deepStrictEqual(lastBlock.cache_control, { type: 'ephemeral' });
+    assert.deepStrictEqual(lastBlock.cache_control, { type: 'ephemeral', ttl: '5m' });
   });
 
   it('handles tool output that is null', () => {

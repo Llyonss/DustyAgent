@@ -122,7 +122,7 @@ app.post('/api/file', (req, res) => {
   const { path: filePath, content } = req.body;
   if (!filePath || typeof content !== 'string') return res.status(400).json({ error: 'path and content required' });
   try {
-    fs.writeFileSync(filePath, content, 'utf-8');
+    fs.writeFileSync(filePath, content.replace(/\r\n/g, '\n'), 'utf-8');
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -142,7 +142,7 @@ app.get('/api/usage', (req, res) => {
 
 if (require.main === module) {
   const PORT = process.env.NOVEL_PORT || 3001;
-  app.listen(PORT, () => console.log('Novel Web running at http://localhost:' + PORT));
+  app.listen(PORT, '0.0.0.0', () => console.log('Novel Web running at http://0.0.0.0:' + PORT));
 }
 
 module.exports = { app, loops };

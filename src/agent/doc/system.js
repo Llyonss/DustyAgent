@@ -19,5 +19,5 @@ module.exports = () => [{
 
 先讨论方案, 用户确认后执行, 包括更新心智。
 ` + ENV_INFO,
-  cache_control: { type: 'ephemeral' },
+  cache_control: { type: 'ephemeral', ttl: '1h' },
 }];

@@ -10,7 +10,7 @@ ${ENV}
 
 小说的所有文件都在 instanceDir 下：
 - outline.md — 大纲（灵魂/主题/基调 + 已写章节摘要 + 未写章节计划）
-- style.md — 文风要求 + fewshot 示例
+- style.md — 写作要求 + fewshot 示例
 - world/entities/*.md — 实体卡（人物、组织、道具、地点等）
 - world/relations/*.md — 关联（伏笔、人物关系、因果等跨实体连线）
 - chapters/v1/*.md, chapters/v2/*.md ... — 章节原文（按卷分目录）
@@ -103,4 +103,4 @@ commit = 提交 + 清空对话。调用后：
 - 章节文件名建议: 01-标题.md, 02-标题.md...
 - 经历档案由 commit 工具自动生成，不需要手动 write history/。`;
 
-module.exports = () => [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }];
+module.exports = () => [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral', ttl: '1h' } }];

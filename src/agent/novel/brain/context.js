@@ -94,17 +94,13 @@ function ensureSnapshot(instanceDir) {
 function buildContextMessages(snapshot) {
   const sections = [];
 
-  // Histories (full content)
+  // Histories (titles only — use recall/read for details)
   if (snapshot.histories && snapshot.histories.length > 0) {
     const items = snapshot.histories.map((h, i) => {
       const title = h.meta?.title || h.meta?.summary || h.name;
-      const changes = Array.isArray(h.meta?.changes) ? h.meta.changes.join(', ') : '';
-      let entry = `### v${i + 1}: ${title}`;
-      if (changes) entry += `\nchanges: ${changes}`;
-      if (h.body && h.body.trim()) entry += `\n${h.body.trim()}`;
-      return entry;
-    }).join('\n\n');
-    sections.push(`## 过往经历\n${items}`);
+      return `- v${i + 1}: ${title}`;
+    }).join('\n');
+    sections.push(`## 过往经历\n${items}\n\n（需要详情时用 recall 工具查看 history/ 目录下的对应文件）`);
   }
 
   if (snapshot.outline) sections.push(`## 大纲\n${snapshot.outline}`);
@@ -133,7 +129,7 @@ function buildContextMessages(snapshot) {
 
   const text = sections.join('\n\n---\n\n');
   return [
-    { role: 'user', content: [{ type: 'text', text: `以下是你的工作上下文（从快照读取，本次会话内冻结不变，commit 后刷新）：\n\n${text}`, cache_control: { type: 'ephemeral' } }] },
+    { role: 'user', content: [{ type: 'text', text: `以下是你的工作上下文（从快照读取，本次会话内冻结不变，commit 后刷新）：\n\n${text}` }] },
     { role: 'assistant', content: [{ type: 'text', text: '收到，我已了解当前工作上下文。' }] },
   ];
 }

@@ -155,7 +155,7 @@ app.post('/api/file', (req, res) => {
   if (!filePath) return res.status(400).json({ error: 'path required' });
   if (typeof content !== 'string') return res.status(400).json({ error: 'content required' });
   try {
-    fs.writeFileSync(filePath, content, 'utf-8');
+    fs.writeFileSync(filePath, content.replace(/\r\n/g, '\n'), 'utf-8');
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

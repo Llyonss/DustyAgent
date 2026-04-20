@@ -224,7 +224,7 @@ describe('loop', () => {
     assert.strictEqual(promptTools.length, 2);
     assert.strictEqual(promptTools[0].name, 'cmd');
     assert.ok(!promptTools[0].cache_control, 'First tool should not have cache_control');
-    assert.deepStrictEqual(promptTools[1].cache_control, { type: 'ephemeral' });
+    assert.deepStrictEqual(promptTools[1].cache_control, { type: 'ephemeral', ttl: '1h' });
     // execute should be stripped from prompt tools
     assert.ok(!promptTools[0].execute);
     assert.ok(!promptTools[1].execute);
