@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mental — 世界心智模型</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+
+<!-- 左栏：对话面板 -->
+<div id="chatPanel">
+  <div class="chat-header">
+    <div class="header-left">
+      <select id="instanceSelect"></select>
+      <button class="btn-icon" onclick="newInstance()" title="新建实例">+</button>
+    </div>
+    <div class="header-right">
+      <button class="btn-text" id="historyBtn" onclick="toggleHistory()">📜 经历</button>
+      <span id="runningIndicator" class="hidden">●</span>
+      <button class="btn-icon" onclick="abortLoop()" title="停止">⏹</button>
+    </div>
+  </div>
+  <div id="historyPanel" class="hidden"></div>
+  <div id="chatMessages" class="chat-messages"></div>
+  <div class="chat-input">
+    <textarea id="chatInput" placeholder="发消息..." rows="1"></textarea>
+    <button onclick="sendMessage()">发送</button>
+  </div>
+</div>
+
+<!-- 右栏：心智浏览器 -->
+<div id="mentalPanel">
+  <div class="mental-top">
+    <input type="text" id="searchInput" placeholder="搜索房间...">
+    <button class="btn-self" onclick="selectRoom('self')">◆ self</button>
+  </div>
+  <div id="searchResults" class="hidden"></div>
+  <div id="roomView">
+    <div class="room-bar">
+      <span id="roomName">选择一个房间</span>
+      <div class="room-actions">
+        <button class="btn-icon" onclick="startEdit('content')" title="编辑内容">✏️</button>
+        <button class="btn-icon" onclick="startEdit('links')" title="编辑走廊">🔗</button>
+      </div>
+    </div>
+    <div id="roomLinks"></div>
+    <div id="roomContent"><div class="empty">从走廊导航或搜索进入房间</div></div>
+    <div id="editArea" class="hidden">
+      <textarea id="editTextarea"></textarea>
+      <div class="edit-bar">
+        <span id="editLabel"></span>
+        <div><button class="btn" onclick="cancelEdit()">取消</button> <button class="btn btn-primary" onclick="saveEdit()">保存</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
