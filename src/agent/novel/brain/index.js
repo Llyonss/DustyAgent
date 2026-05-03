@@ -1,11 +1,11 @@
 const system = require('./system');
 const createNovelTools = require('./tools');
-const { ensureSnapshot, buildContextMessages } = require('./context');
+const { ensureSnapshot, buildContextEvents } = require('./context');
 const toolLoop = require('../../../hooks/tool-loop');
 const toolCmd = require('../../../hooks/tool-cmd');
 const toolFile = require('../../../hooks/tool-file');
 const toolMedia = require('../../../hooks/tool-media');
-const { tools: eyeTools, injectEye } = require('../../../hooks/tool-eye');
+const { tools: eyeTools, injectEyeEvents } = require('../../../hooks/tool-eye');
 const createLog = require('../../../hooks/output-log');
 
 module.exports = function(instanceDir) {
@@ -18,7 +18,7 @@ module.exports = function(instanceDir) {
 
     tools: () => tools,
 
-    events: (events) => {
+    events: async (events) => {
       // Truncate before the last successful finalize
       let last = -1;
       for (let i = events.length - 1; i >= 0; i--) {
@@ -27,13 +27,14 @@ module.exports = function(instanceDir) {
           break;
         }
       }
-      return last >= 0 ? events.slice(last + 1) : events;
-    },
+      let filtered = last >= 0 ? events.slice(last + 1) : events;
 
-    messages: async (messages) => {
+      // Prepend context as synthetic events
       const snapshot = ensureSnapshot(instanceDir);
-      const prefix = buildContextMessages(snapshot);
-      return injectEye([...prefix, ...messages]);
+      const contextEvents = buildContextEvents(snapshot);
+      if (contextEvents.length > 0) filtered = [...contextEvents, ...filtered];
+
+      return injectEyeEvents(filtered);
     },
 
     output: (turn) => log.output(turn),

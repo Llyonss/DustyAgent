@@ -52,35 +52,9 @@ async function generateMask(events, mask, instanceDir) {
     return `--- ${e.ts} ---\n${JSON.stringify(e)}\n---`;
   }).join('\n');
 
-  const prompt = {
-    model: process.env.LLM_MODEL,
-    max_tokens: 8192,
-    tools: [{
-      name: 'write_mask',
-      description: 'Write the mask.json file to compress conversation history.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          mask: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                start: { type: 'number', description: 'Start timestamp' },
-                end: { type: 'number', description: 'End timestamp' },
-                summary: { type: 'string', description: 'One line summary of masked events' },
-              },
-              required: ['start', 'end', 'summary'],
-            },
-          },
-        },
-        required: ['mask'],
-      },
-    }],
-    tool_choice: { type: 'tool', name: 'write_mask' },
-    messages: [{
-      role: 'user',
-      content: `Below is a conversation history. Each event has a timestamp. Summaries of previously masked events show their timestamp range.
+  const maskEvents = [{
+    type: 'user',
+    content: `Below is a conversation history. Each event has a timestamp. Summaries of previously masked events show their timestamp range.
 
 Generate a mask to compress older, less relevant events.
 
@@ -92,12 +66,37 @@ Rules:
 
 Events:
 ${text}`,
-    }],
-  };
+  }];
+
+  const maskTools = [{
+    name: 'write_mask',
+    description: 'Write the mask.json file to compress conversation history.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        mask: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              start: { type: 'number', description: 'Start timestamp' },
+              end: { type: 'number', description: 'End timestamp' },
+              summary: { type: 'string', description: 'One line summary of masked events' },
+            },
+            required: ['start', 'end', 'summary'],
+          },
+        },
+      },
+      required: ['mask'],
+    },
+  }];
 
   try {
-    for await (const evt of infer(prompt)) {
-      if (evt.type === 'tool_call' && evt.name === 'write_mask') {
+    for await (const evt of infer(maskEvents, {
+      tools: maskTools,
+      extra: { tool_choice: { type: 'tool', name: 'write_mask' } },
+    })) {
+      if (evt.type === 'action' && evt.tool === 'write_mask') {
         writeMask(instanceDir, evt.input.mask);
       }
     }

@@ -36,13 +36,17 @@ module.exports = [
 - prompt 描述要生成的图片内容。
 - path 为输出文件的绝对路径（如 .png）。
 - images 可选，参考图片的绝对路径数组，模型会参考这些图片来生成。
+- prompt 中用 [1] [2] 引用 images 数组中的第1、2张图，实现图文交织。
+  例：images=["/a/hero.png","/a/bg.png"], prompt="把[1]绘制到[2]的场景中"
+  → 模型看到的是: 文字"把" + hero图 + 文字"绘制到" + bg图 + 文字"的场景中"
+  不写 [N] 时所有图片放在 prompt 前面，效果相当于整体参考。
 - options 可选配置对象。`,
     input_schema: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: 'Text description of the image to generate' },
+        prompt: { type: 'string', description: 'Image description. Use [1] [2] to reference images by index, e.g. "draw [1] into [2] scene"' },
         path: { type: 'string', description: 'Absolute file path to save the generated image' },
-        images: { type: 'array', items: { type: 'string' }, description: 'Array of absolute file paths of reference images' },
+        images: { type: 'array', items: { type: 'string' }, description: 'Reference image paths. Referenced in prompt as [1] [2] by position' },
         options: {
           type: 'object',
           description: 'Optional configuration',
@@ -63,12 +67,30 @@ module.exports = [
 
       let contents = input.prompt;
       if (input.images && input.images.length > 0) {
-        const parts = input.images.map(img => {
+        // 支持 prompt 中 [1] [2] 引用 → 图文交织 parts
+        const imgParts = input.images.map(img => {
           const { imageBytes, mimeType } = readImage(img);
           return { inlineData: { data: imageBytes, mimeType } };
         });
-        parts.push({ text: input.prompt });
-        contents = parts;
+        const regex = /\[(\d+)\]/g;
+        let hasRef = false, lastIdx = 0, match;
+        const parts = [];
+        while ((match = regex.exec(input.prompt)) !== null) {
+          const n = parseInt(match[1], 10);
+          if (n < 1 || n > input.images.length) continue;
+          hasRef = true;
+          const before = input.prompt.slice(lastIdx, match.index);
+          if (before) parts.push({ text: before });
+          parts.push(imgParts[n - 1]);
+          lastIdx = regex.lastIndex;
+        }
+        if (hasRef) {
+          const tail = input.prompt.slice(lastIdx);
+          if (tail) parts.push({ text: tail });
+          contents = parts;
+        } else {
+          contents = [...imgParts, { text: input.prompt }];
+        }
       }
 
       const response = await client.models.generateContent({

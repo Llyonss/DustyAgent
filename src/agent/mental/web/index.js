@@ -7,8 +7,9 @@ const { readEvents, writeEvent } = require('../../../core/event');
 const { loop } = require('../../../core/loop');
 const createMentalAgent = require('../brain');
 
+
 const mentalRoot = path.join(__dirname, '../../../../mental');
-const roomsDir = path.join(mentalRoot, 'rooms');
+const roomsDir = path.join(mentalRoot, 'space');
 const instancesDir = path.join(mentalRoot, 'instances');
 const loops = new Map();
 
@@ -26,9 +27,29 @@ function resolve(name) {
   return { key, instanceDir, eventsDir };
 }
 
+const DEFAULT_SYSTEM_PATH = path.join(__dirname, '../brain/system-default.md');
+
 function ensureInstance(instanceDir) {
   fs.mkdirSync(path.join(instanceDir, 'events'), { recursive: true });
   fs.mkdirSync(path.join(instanceDir, 'history'), { recursive: true });
+  // Write default system.md if not exists
+  const systemMdPath = path.join(instanceDir, 'system.md');
+  if (!fs.existsSync(systemMdPath)) {
+    const defaultContent = tryRead(DEFAULT_SYSTEM_PATH) || '';
+    fs.writeFileSync(systemMdPath, defaultContent, 'utf-8');
+  }
+}
+
+function tryRead(p) {
+  try { return fs.readFileSync(p, 'utf-8'); } catch { return null; }
+}
+
+// Parse JSONL links content
+function parseLinks(content) {
+  if (!content) return [];
+  return content.split('\n').filter(l => l.trim()).map(line => {
+    try { return JSON.parse(line); } catch { return null; }
+  }).filter(Boolean);
 }
 
 const app = express();
@@ -52,6 +73,18 @@ app.post('/api/instances', (req, res) => {
   res.json({ ok: true });
 });
 
+app.delete('/api/instances', async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const { key, instanceDir } = resolve(name);
+  // Stop running loop if any
+  const entry = loops.get(key);
+  if (entry) { entry.controller.abort(); await entry.done; }
+  // Remove directory
+  try { fs.rmSync(instanceDir, { recursive: true, force: true }); } catch {}
+  res.json({ ok: true });
+});
+
 // --- Events ---
 app.get('/api/events', (req, res) => {
   const { key, eventsDir } = resolve(req.query.instance);
@@ -59,6 +92,46 @@ app.get('/api/events', (req, res) => {
     res.json({ events: readEvents(eventsDir), running: loops.has(key) });
   } catch { res.json({ events: [], running: false }); }
 });
+
+app.delete('/api/events', (req, res) => {
+  const { instance, file, mode } = req.body;
+  if (!instance || !file || !mode) return res.status(400).json({ error: 'instance, file, mode required' });
+  const { key, eventsDir } = resolve(instance);
+  // 运行中禁止删除
+  if (loops.has(key)) return res.status(409).json({ error: 'loop running, stop first' });
+  try {
+    const events = readEvents(eventsDir);
+    const idx = events.findIndex(e => e._file === file);
+    if (idx === -1) return res.status(404).json({ error: 'event not found' });
+    const toDelete = mode === 'after' ? events.slice(idx) : [events[idx]];
+    for (const e of toDelete) {
+      fs.unlinkSync(path.join(eventsDir, e._file));
+    }
+    res.json({ ok: true, deleted: toDelete.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+function createHooks(key, instanceDir) {
+  const hooks = createMentalAgent(instanceDir);
+  hooks.stop = hooks.createStop(() => startLoop(key, instanceDir, hooks));
+  return hooks;
+}
+
+function startLoop(key, instanceDir, hooks) {
+  if (loops.has(key)) return;
+  const controller = new AbortController();
+  const done = (async () => {
+    try {
+      for await (const turn of loop({ instanceDir, signal: controller.signal, hooks })) {}
+    } catch (e) {
+      if (e.name !== 'AbortError') console.error('Loop error:', e.message);
+    } finally {
+      loops.delete(key);
+      if (!controller.signal.aborted && hooks.stop) await hooks.stop();
+    }
+  })();
+  loops.set(key, { controller, done });
+}
 
 app.post('/api/events', async (req, res) => {
   const { content, retry } = req.body;
@@ -77,17 +150,7 @@ app.post('/api/events', async (req, res) => {
   res.json({ ok: true });
 
   if (loops.has(key)) return;
-
-  const hooks = createMentalAgent(instanceDir);
-  const controller = new AbortController();
-  const done = (async () => {
-    try {
-      for await (const turn of loop({ instanceDir, signal: controller.signal, hooks })) {}
-    } catch (e) {
-      if (e.name !== 'AbortError') console.error('Loop error:', e.message);
-    } finally { loops.delete(key); }
-  })();
-  loops.set(key, { controller, done });
+  startLoop(key, instanceDir, createHooks(key, instanceDir));
 });
 
 app.delete('/api/loop', async (req, res) => {
@@ -97,28 +160,35 @@ app.delete('/api/loop', async (req, res) => {
   res.json({ ok: true });
 });
 
-// --- Rooms (global) ---
-app.get('/api/rooms', (req, res) => {
+// --- Graph: nodes + edges for force-directed graph ---
+app.get('/api/graph', (req, res) => {
   try {
     const files = fs.readdirSync(roomsDir).filter(f => f.endsWith('.md'));
-    const rooms = files.map(f => {
-      const name = f.replace(/\.md$/, '');
-      const linksFile = path.join(roomsDir, name + '.links');
-      let links = null;
-      try { links = fs.readFileSync(linksFile, 'utf-8'); } catch {}
-      return { name, hasLinks: !!links };
-    }).sort((a, b) => a.name.localeCompare(b.name));
-    res.json(rooms);
-  } catch { res.json([]); }
+    const nodes = files.map(f => ({ name: f.replace(/\.md$/, '') }));
+    const edges = [];
+    for (const node of nodes) {
+      const linksContent = tryRead(path.join(roomsDir, node.name + '.links'));
+      const links = parseLinks(linksContent);
+      for (const link of links) {
+        if (link.parent) {
+          // Node declares its parent: edge from parent to child
+          edges.push({ source: link.name, target: node.name, label: link.summary || '', parent: true });
+        } else {
+          edges.push({ source: node.name, target: link.name, label: link.summary || '', parent: false });
+        }
+      }
+    }
+    res.json({ nodes, edges });
+  } catch { res.json({ nodes: [], edges: [] }); }
 });
 
+// --- Room content ---
 app.get('/api/room', (req, res) => {
   const { name } = req.query;
   if (!name) return res.status(400).json({ error: 'name required' });
   try {
     const md = fs.readFileSync(path.join(roomsDir, name + '.md'), 'utf-8');
-    let links = null;
-    try { links = fs.readFileSync(path.join(roomsDir, name + '.links'), 'utf-8'); } catch {}
+    const links = tryRead(path.join(roomsDir, name + '.links'));
     res.json({ name, content: md, links });
   } catch (e) { res.status(404).json({ error: e.message }); }
 });
@@ -127,32 +197,79 @@ app.get('/api/room', (req, res) => {
 app.get('/api/instance', (req, res) => {
   const { instanceDir } = resolve(req.query.name);
   try {
-    let selfMd = null, selfLinks = null;
-    try { selfMd = fs.readFileSync(path.join(instanceDir, 'self.md'), 'utf-8'); } catch {}
-    try { selfLinks = fs.readFileSync(path.join(instanceDir, 'self.links'), 'utf-8'); } catch {}
-    res.json({ selfMd, selfLinks });
+    const systemMd = tryRead(path.join(instanceDir, 'system.md')) ?? '';
+    // ENV info (same as system.js appends)
+    const os = require('os');
+    const env = `Environment: ${os.platform()}/${os.arch()}, shell: ${os.platform() === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/sh'}, cwd: ${process.cwd()}\nInstance: ${path.basename(instanceDir)}, instanceDir: ${instanceDir}`;
+    res.json({ systemMd, env });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// --- Self save (instance private room) ---
+// --- Tools ---
+app.get('/api/tools', (req, res) => {
+  const { instanceDir } = resolve(req.query.instance);
+  const toolsDir = path.join(instanceDir, 'tools');
+  const configPath = path.join(instanceDir, 'tools.json');
+
+  let config = { disabled: [], overrides: {} };
+  try { config = { disabled: [], overrides: {}, ...JSON.parse(fs.readFileSync(configPath, 'utf-8')) }; } catch {}
+
+  const { getBuiltins } = require('../brain');
+  const builtins = getBuiltins(instanceDir).map(t => ({
+    name: t.name, description: t.description, input_schema: t.input_schema,
+  }));
+
+  const custom = [];
+  try {
+    for (const f of fs.readdirSync(toolsDir).filter(f => f.endsWith('.js'))) {
+      const code = tryRead(path.join(toolsDir, f)) || '';
+      let name = f.replace(/\.js$/, ''), description = '', input_schema = {};
+      try {
+        const fp = path.join(toolsDir, f);
+        delete require.cache[require.resolve(fp)];
+        const mod = require(fp);
+        if (mod.name) name = mod.name;
+        if (mod.description) description = mod.description;
+        if (mod.input_schema) input_schema = mod.input_schema;
+      } catch {}
+      custom.push({ name, file: f, description, input_schema, code });
+    }
+  } catch {}
+
+  res.json({ config, builtins, custom });
+});
+
+// --- Self save ---
 app.post('/api/self-save', (req, res) => {
   const { instance, suffix, content } = req.body;
   if (!instance || !suffix || typeof content !== 'string') return res.status(400).json({ error: 'instance, suffix, content required' });
   const { instanceDir } = resolve(instance);
   try {
     ensureInstance(instanceDir);
-    fs.writeFileSync(path.join(instanceDir, suffix), content.replace(/\r\n/g, '\n'), 'utf-8');
+    const filePath = path.join(instanceDir, suffix);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, content.replace(/\r\n/g, '\n'), 'utf-8');
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/history', (req, res) => {
-  const { instanceDir } = resolve(req.query.instance);
-  const historyDir = path.join(instanceDir, 'history');
+// --- Room save ---
+app.post('/api/room-save', (req, res) => {
+  const { name, suffix, content } = req.body;
+  if (!name || !suffix || typeof content !== 'string') return res.status(400).json({ error: 'name, suffix, content required' });
   try {
-    const files = fs.readdirSync(historyDir).filter(f => f.endsWith('.md')).sort();
-    const items = files.map(f => {
-      const raw = fs.readFileSync(path.join(historyDir, f), 'utf-8');
+    fs.mkdirSync(roomsDir, { recursive: true });
+    fs.writeFileSync(path.join(roomsDir, name + suffix), content.replace(/\r\n/g, '\n'), 'utf-8');
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// --- History ---
+function parseHistoryDir(histDir) {
+  try {
+    const files = fs.readdirSync(histDir).filter(f => f.endsWith('.md')).sort();
+    return files.map(f => {
+      const raw = fs.readFileSync(path.join(histDir, f), 'utf-8');
       const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
       const meta = {};
       if (m) {
@@ -168,36 +285,76 @@ app.get('/api/history', (req, res) => {
       }
       return { file: f, title: meta.title || f, entities: meta.entities || [], story: m ? m[2] : raw };
     });
-    res.json(items);
+  } catch { return []; }
+}
+
+app.get('/api/history', (req, res) => {
+  const { instanceDir } = resolve(req.query.instance);
+  res.json(parseHistoryDir(path.join(instanceDir, 'history')));
+});
+
+// --- Story events: get events for a specific commit interval ---
+app.get('/api/story-events', (req, res) => {
+  const { eventsDir } = resolve(req.query.instance);
+  const index = parseInt(req.query.index); // 1-based
+  if (!index || index < 1) return res.status(400).json({ error: 'index required (1-based)' });
+  try {
+    const events = readEvents(eventsDir);
+    // Find all successful commits
+    const commitIndices = [];
+    for (let i = 0; i < events.length; i++) {
+      if (events[i].type === 'action' && events[i].tool === 'commit' && !events[i].error) {
+        commitIndices.push(i);
+      }
+    }
+    if (index > commitIndices.length) return res.json([]);
+    const start = index === 1 ? 0 : commitIndices[index - 2] + 1;
+    const end = commitIndices[index - 1]; // exclusive of commit itself
+    res.json(events.slice(start, end));
   } catch { res.json([]); }
 });
 
-// --- Room save (from frontend editor) ---
-app.post('/api/room-save', (req, res) => {
-  const { name, suffix, content } = req.body;
-  if (!name || !suffix || typeof content !== 'string') return res.status(400).json({ error: 'name, suffix, content required' });
+// --- Mental stories: find stories related to a mental across all instances ---
+app.get('/api/mental-stories', (req, res) => {
+  const { name } = req.query;
+  if (!name) return res.status(400).json({ error: 'name required' });
   try {
-    fs.mkdirSync(roomsDir, { recursive: true });
-    fs.writeFileSync(path.join(roomsDir, name + suffix), content.replace(/\r\n/g, '\n'), 'utf-8');
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// --- File read/write ---
-app.get('/api/file', (req, res) => {
-  const filePath = req.query.path;
-  if (!filePath) return res.status(400).json({ error: 'path required' });
-  try { res.json({ content: fs.readFileSync(filePath, 'utf-8') }); }
-  catch (e) { res.status(404).json({ error: e.message }); }
-});
-
-app.post('/api/file', (req, res) => {
-  const { path: filePath, content } = req.body;
-  if (!filePath || typeof content !== 'string') return res.status(400).json({ error: 'path and content required' });
-  try {
-    fs.writeFileSync(filePath, content.replace(/\r\n/g, '\n'), 'utf-8');
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    const allStories = [];
+    const instances = fs.readdirSync(instancesDir, { withFileTypes: true })
+      .filter(d => d.isDirectory()).map(d => d.name);
+    for (const inst of instances) {
+      const evDir = path.join(instancesDir, inst, 'events');
+      let events;
+      try { events = readEvents(evDir); } catch { continue; }
+      let segStart = 0, commitNum = 0;
+      for (let i = 0; i < events.length; i++) {
+        const e = events[i];
+        if (e.type === 'action' && e.tool === 'commit' && !e.error) {
+          commitNum++;
+          const segment = events.slice(segStart, i);
+          const hasMental = segment.some(ev =>
+            ev.type === 'action' && (ev.tool === 'mental' || ev.tool === 'links') && ev.input &&
+            (ev.input.content != null || ev.input.old != null || ev.input.delete) &&
+            ev.input.name === name
+          );
+          if (hasMental) {
+            // Read story from history file
+            const histDir = path.join(instancesDir, inst, 'history');
+            const items = parseHistoryDir(histDir);
+            const story = items[commitNum - 1];
+            allStories.push({
+              instance: inst, index: commitNum,
+              title: story?.title || e.input?.title || 'untitled',
+              story: story?.story || e.input?.story || '',
+              entities: story?.entities || []
+            });
+          }
+          segStart = i + 1;
+        }
+      }
+    }
+    res.json(allStories);
+  } catch { res.json([]); }
 });
 
 if (require.main === module) {

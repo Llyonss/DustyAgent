@@ -1,16 +1,26 @@
-function buildMessages(events) {
-  const messages = [];
+/**
+ * Group raw events into structured groups for provider consumption.
+ *
+ * Returns array of:
+ *   { type: 'user', parts: ['text1', 'text2'] }     — consecutive user inputs merged
+ *   { type: 'turn', turn, actions: [...], followUp? } — assistant turn
+ *
+ * actions are raw action events: { tool, toolUseId, input, output }
+ * followUp: if a user event immediately follows a tool-calling turn, it's absorbed here
+ */
+function groupEvents(events) {
+  const groups = [];
   let i = 0;
 
   while (i < events.length) {
     const e = events[i];
 
     if (e.type === 'user') {
-      const last = messages[messages.length - 1];
-      if (last && last.role === 'user') {
-        last.content.push({ type: 'text', text: e.content });
+      const last = groups[groups.length - 1];
+      if (last && last.type === 'user') {
+        last.parts.push(e.content);
       } else {
-        messages.push({ role: 'user', content: [{ type: 'text', text: e.content }] });
+        groups.push({ type: 'user', parts: [e.content] });
       }
       i++;
     } else if (e.type === 'action') {
@@ -20,55 +30,26 @@ function buildMessages(events) {
         actions.push(events[i]);
         i++;
       }
+      const group = { type: 'turn', turn, actions };
+      groups.push(group);
 
-      const assistantContent = [];
-      const toolActions = [];
-      for (const a of actions) {
-        if (a.tool === 'speak') {
-          assistantContent.push({ type: 'text', text: a.output });
-        } else {
-          assistantContent.push({ type: 'tool_use', id: a.toolUseId, name: a.tool, input: a.input });
-          toolActions.push(a);
-        }
-      }
-
-      messages.push({ role: 'assistant', content: assistantContent });
-
-      if (toolActions.length > 0) {
-        const toolResults = toolActions.map(a => ({
-          type: 'tool_result',
-          tool_use_id: a.toolUseId,
-          content: String(a.output != null ? a.output : ''),
-        }));
-
-        if (i < events.length && events[i].type === 'user') {
-          toolResults.push({ type: 'text', text: events[i].content });
-          i++;
-        }
-
-        messages.push({ role: 'user', content: toolResults });
+      // Absorb following user into turn (tool results + user input in same message)
+      const hasTools = actions.some(a => a.tool !== 'speak' && a.tool !== 'thinking');
+      if (hasTools && i < events.length && events[i].type === 'user') {
+        group.followUp = events[i].content;
+        i++;
       }
     } else {
       i++;
     }
   }
 
-  if (messages.length === 0 || messages[0].role !== 'user') {
-    messages.unshift({ role: 'user', content: [{ type: 'text', text: '(session started)' }] });
+  // Ensure starts with user
+  if (groups.length === 0 || groups[0].type !== 'user') {
+    groups.unshift({ type: 'user', parts: ['(session started)'] });
   }
 
-  // Cache control on last two user messages
-  // Last: 5min (always new content, cheap write); 2nd-to-last: 1h (stable prefix, survives idle gaps)
-  let cacheCount = 0;
-  for (let j = messages.length - 1; j >= 0 && cacheCount < 2; j--) {
-    if (messages[j].role === 'user' && messages[j].content.length > 0) {
-      const ttl = cacheCount === 0 ? '5m' : '1h';
-      messages[j].content[messages[j].content.length - 1].cache_control = { type: 'ephemeral', ttl };
-      cacheCount++;
-    }
-  }
-
-  return messages;
+  return groups;
 }
 
-module.exports = { buildMessages };
+module.exports = { groupEvents };

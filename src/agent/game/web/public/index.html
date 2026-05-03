@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game Assets</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="topbar">
+    <h1>🎮 素材工具</h1>
+    <button onclick="refreshFiles()">刷新</button>
+    <button onclick="uploadClick()">上传</button>
+    <button onclick="openImageGen()">🎨 生图</button>
+    <span class="skill-badge" onclick="showSkills()">技能: <span id="skill-count">0</span></span>
+  </div>
+  <div class="main">
+    <div class="gallery">
+      <div class="grid"></div>
+    </div>
+    <div class="chat">
+      <div class="messages"></div>
+      <div class="chat-input">
+        <input type="text" placeholder="和 Agent 对话...">
+        <button>发送</button>
+      </div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

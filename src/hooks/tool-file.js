@@ -7,18 +7,16 @@ function normalizeQuotes(s) { return s.replace(/[\u201c\u201d]/g, '"').replace(/
 const MAX_LINES = 500;
 const MAX_CHARS = 30000;
 
-function truncate(text) {
-  const lines = text.split('\n');
-  let chars = 0, n = 0;
-  for (; n < lines.length; n++) {
-    chars += lines[n].length + 1;
-    if (n + 1 >= MAX_LINES || chars >= MAX_CHARS) { n++; break; }
+// Parse lines param: "10-20" | "50-" | "50" → { from, to } (1-based, to=Infinity for open-ended)
+function parseLines(lines) {
+  if (!lines) return null;
+  const s = String(lines).trim();
+  if (s.includes('-')) {
+    const [left, right] = s.split('-', 2);
+    return { from: left ? parseInt(left, 10) : 1, to: right ? parseInt(right, 10) : Infinity };
   }
-  if (n < lines.length) {
-    return lines.slice(0, n).join('\n')
-      + `\n[truncated: 1-${n} of ${lines.length} lines, ${(chars / 1000).toFixed(1)}k/${(text.length / 1000).toFixed(1)}k chars] Use from_line/to_line to read specific ranges.`;
-  }
-  return null; // no truncation
+  const n = parseInt(s, 10);
+  return { from: n, to: n };
 }
 
 function readFile(input, ctrl) {
@@ -28,9 +26,10 @@ function readFile(input, ctrl) {
   const allLines = content.split('\n');
   const totalLines = allLines.length;
 
-  const hasRange = input.from_line != null || input.to_line != null;
-  const from = (input.from_line || 1) - 1;
-  const to = Math.min((input.to_line || totalLines), totalLines);
+  const range = parseLines(input.lines);
+  const hasRange = !!range;
+  const from = (range ? range.from : 1) - 1;
+  const to = Math.min((range ? (range.to === Infinity ? totalLines : range.to) : totalLines), totalLines);
   const sliced = allLines.slice(from, to);
 
   let charCount = 0, lineCount = 0;
@@ -44,13 +43,13 @@ function readFile(input, ctrl) {
 
   if (truncated) {
     const shownFrom = from + 1, shownTo = from + lineCount;
-    return result + `\n[truncated: ${shownFrom}-${shownTo} of ${totalLines} lines, ${(charCount / 1000).toFixed(1)}k/${(content.length / 1000).toFixed(1)}k chars] Use from_line/to_line to read specific ranges.`;
+    return result + `\n[truncated: ${shownFrom}-${shownTo} of ${totalLines} lines, ${(charCount / 1000).toFixed(1)}k/${(content.length / 1000).toFixed(1)}k chars] Use lines param to read specific ranges.`;
   }
 
   if (!hasRange && ctrl && ctrl.events) {
     for (let i = ctrl.events.length - 1; i >= 0; i--) {
       const e = ctrl.events[i];
-      if (e.type === 'action' && e.tool === 'file' && e.input && path.normalize(e.input.path || '') === filePath && !e.input.content && !e.input.old && !e.input.delete) {
+      if (e.type === 'action' && e.tool === 'file' && e.input && path.normalize(e.input.path || '') === filePath && !e.input.set && !e.input.select && !e.input.delete) {
         if (e.output === result) return 'unchanged';
         break;
       }
@@ -59,57 +58,10 @@ function readFile(input, ctrl) {
   return result;
 }
 
-function readAgo(input, ctrl) {
-  const filePath = path.normalize(input.path);
-  const ago = input.ago;
-  if (!ctrl || !ctrl.events) throw new Error('No events available for ago lookup');
-
-  // Collect all historical versions of this file from events
-  const versions = [];
-  for (const evt of ctrl.events) {
-    if (evt.type !== 'action') continue;
-    const ep = evt.input?.path ? path.normalize(evt.input.path) : null;
-    if (!ep || ep !== filePath) continue;
-    // read tool (old name) or file tool in read mode
-    if ((evt.tool === 'read' || evt.tool === 'file') && !evt.input.content && !evt.input.old && !evt.input.delete && !evt.input.ago) {
-      if (typeof evt.output === 'string' && evt.output !== 'unchanged') {
-        versions.push(evt.output);
-      }
-    }
-    // write tool (old name) or file tool in write mode
-    if ((evt.tool === 'write' || evt.tool === 'file') && typeof evt.input?.content === 'string') {
-      versions.push(evt.input.content);
-    }
-  }
-
-  if (ago > versions.length) throw new Error(`Only ${versions.length} version(s) found, cannot go back ${ago}`);
-  const base = versions[versions.length - ago];
-
-  // Apply subsequent edits after this version
-  // Find the event index of this version
-  let baseIdx = -1, count = 0;
-  for (let i = 0; i < ctrl.events.length; i++) {
-    const evt = ctrl.events[i];
-    if (evt.type !== 'action') continue;
-    const ep = evt.input?.path ? path.normalize(evt.input.path) : null;
-    if (!ep || ep !== filePath) continue;
-    if ((evt.tool === 'read' || evt.tool === 'file') && !evt.input.content && !evt.input.old && !evt.input.delete && !evt.input.ago) {
-      if (typeof evt.output === 'string' && evt.output !== 'unchanged') count++;
-    }
-    if ((evt.tool === 'write' || evt.tool === 'file') && typeof evt.input?.content === 'string') count++;
-    if (count === versions.length - ago + 1) { baseIdx = i; break; }
-  }
-
-  // No edits to apply — we want the version as-is before next version
-  // Actually for ago, we just return that version directly
-  const t = truncate(base);
-  return t || base;
-}
-
 function writeFile(input) {
   const filePath = path.normalize(input.path);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, input.content);
+  fs.writeFileSync(filePath, input.set);
   return 'ok';
 }
 
@@ -118,8 +70,8 @@ function editFile(input) {
   const raw = fs.readFileSync(filePath, 'utf-8');
   const useCRLF = raw.includes('\r\n');
   let content = normalizeEndings(raw);
-  const old = normalizeEndings(input.old);
-  const replacement = normalizeEndings(input.new);
+  const old = normalizeEndings(input.select);
+  const replacement = normalizeEndings(input.set);
 
   let matchOld = old;
   if (!content.includes(old)) {
@@ -148,49 +100,118 @@ function deleteFile(input) {
   return 'ok';
 }
 
+// --- List directory tree ---
+const IGNORE_DIRS = new Set(['node_modules', '.git', '.svn', '__pycache__', '.DS_Store']);
+const LIST_MAX_CHARS = 4000;
+
+function scanDir(dirPath) {
+  // returns { name, children: [...] | null (file) }
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true })
+    .filter(e => !IGNORE_DIRS.has(e.name))
+    .sort((a, b) => {
+      // dirs first, then files
+      if (a.isDirectory() && !b.isDirectory()) return -1;
+      if (!a.isDirectory() && b.isDirectory()) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  return entries.map(e => {
+    if (e.isDirectory()) {
+      return { name: e.name + '/', children: scanDir(path.join(dirPath, e.name)) };
+    }
+    return { name: e.name, children: null };
+  });
+}
+
+function countNodes(nodes) {
+  let c = nodes.length;
+  for (const n of nodes) {
+    if (n.children) c += countNodes(n.children);
+  }
+  return c;
+}
+
+function renderDirTree(nodes, maxDepth) {
+  const lines = [];
+  function walk(items, depth) {
+    for (const item of items) {
+      const indent = '  '.repeat(depth);
+      if (item.children && depth >= maxDepth) {
+        const desc = countNodes(item.children);
+        lines.push(`${indent}${item.name} (+${desc})`);
+      } else {
+        lines.push(`${indent}${item.name}`);
+        if (item.children) walk(item.children, depth + 1);
+      }
+    }
+  }
+  walk(nodes, 0);
+  return lines.join('\n');
+}
+
+function maxDirDepth(nodes, depth) {
+  let max = depth;
+  for (const n of nodes) {
+    if (n.children && n.children.length) {
+      max = Math.max(max, maxDirDepth(n.children, depth + 1));
+    }
+  }
+  return max;
+}
+
+function listDir(input) {
+  const dirPath = path.normalize(input.path || process.cwd());
+  const tree = scanDir(dirPath);
+  if (!tree.length) return '(空目录)';
+
+  let depth = maxDirDepth(tree, 0);
+  let result = renderDirTree(tree, depth + 1);
+  while (result.length > LIST_MAX_CHARS && depth >= 0) {
+    result = renderDirTree(tree, depth);
+    depth--;
+  }
+  return result;
+}
+
 module.exports = [
   {
     name: 'file',
-    description: `文件操作工具。根据参数组合自动判断模式：
+    description: `文件操作。对文件系统进行读取、写入、编辑、删除、列目录。
 
-读取文件：
-- path 参数必须是绝对路径。
-- 只能读文本文件，不能读目录。列目录请用 cmd 的 "dir" 或 "ls"。
-- 可选 from_line/to_line 指定行范围（1-based，含两端）。
-- 超过500行或30000字符自动裁剪，请用行范围参数分段读取。
-- 可选 ago 参数读取历史版本（ago=1为上一版本，ago=2为上上版本）。
+参数分两层——定位+操作：
+定位（逐步圈定范围）：path指定文件/目录（绝对路径），lines圈定行范围，select圈定到文本中的某段。
+操作：不传=读取，set=写入，delete=删除，list=列目录树。
 
-写入文件：传 content 参数。自动创建目录。
-- 用于创建新文件或完整重写已有文件。
-- 修改已有文件优先用 old/new 参数——只传改动部分，更快、更省、更不容易出错。
-- 非任务明确要求时不要写文件。
-- content 完整发送，受单次输出 token 限制，最高 3000 字。如超出建议分步写入或用 cmd 生成。
+示例：
+  file(path="/a/b.js")                              → 读取整个文件
+  file(path="/a/b.js", lines="10-20")               → 读取第10到20行
+  file(path="/a/b.js", lines="50-")                  → 读取第50行到末尾
+  file(path="/a/b.js", lines="50")                   → 只读第50行
+  file(path="/a/b.js", set="全部内容")                → 整体重写（不存在则新建，自动创建目录）
+  file(path="/a/b.js", select="旧代码", set="新代码")  → 局部替换（select必须精确匹配文件中的唯一子串，含空白和换行）
+  file(path="/a/b.js", delete=true)                   → 删除文件
+  file(path="/a/src", list=true)                      → 列出目录树（自动忽略node_modules/.git等，字数超限时从最深层逐层收起标注+N）
 
-替换文本：传 old + new 参数。
-- old 必须是文件中的精确子串（逐字匹配，含空白和换行）。
-- 若 old 匹配到多处，编辑会失败——请提供更多上下文使其唯一。
-- 适合局部修改。old + new 总计超过 200 行时，考虑用 content 重写整个文件。
-
-删除文件：传 delete=true。`,
+约束：
+- 只能读文本文件。超过500行或30000字符自动裁剪，用lines参数分段读取。
+- select匹配到多处会失败，需提供更多上下文使其唯一。
+- set受单次输出token限制（约3000字），超出建议分步写入或用cmd生成。`,
     input_schema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Absolute file path' },
-        content: { type: 'string', description: 'Complete new content (write mode)' },
-        old: { type: 'string', description: 'Exact substring to find (edit mode)' },
-        new: { type: 'string', description: 'Replacement text (edit mode)' },
-        delete: { type: 'boolean', description: 'Delete the file' },
-        ago: { type: 'number', description: 'Read Nth previous version (1=last, 2=before last)' },
-        from_line: { type: 'number', description: 'Start line (1-based, inclusive)' },
-        to_line: { type: 'number', description: 'End line (1-based, inclusive)' },
+        path: { type: 'string', description: '文件或目录的绝对路径。如path="/project/src/index.js"' },
+        lines: { type: 'string', description: '圈定行范围（1-based，含两端）。"10-20"=第10到20行，"50-"=第50行到末尾，"50"=只第50行' },
+        select: { type: 'string', description: '圈定文件中的某段文本（精确匹配，含空白换行），配合set做局部替换。如select="old code", set="new code"' },
+        set: { type: 'string', description: '写入。不传select=整体重写（文件不存在则新建），传select=替换匹配段' },
+        delete: { type: 'boolean', description: '删除文件' },
+        list: { type: 'boolean', description: '列出目录树。path指向目录，展示树形结构，自动忽略node_modules/.git等，字数超限时逐层收起' },
       },
       required: ['path'],
     },
     execute: async (input, ctrl) => {
+      if (input.list) return listDir(input);
       if (input.delete) return deleteFile(input);
-      if (input.content != null) return writeFile(input);
-      if (input.old != null && input.new != null) return editFile(input);
-      if (input.ago) return readAgo(input, ctrl);
+      if (input.set != null && input.select) return editFile(input);
+      if (input.set != null) return writeFile(input);
       return readFile(input, ctrl);
     },
   },

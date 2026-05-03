@@ -103,29 +103,43 @@ const tools = [
 ];
 
 /**
- * Messages hook: 如果最后一条 user message 中包含 eye 的 tool_result，
- * 读取图片文件并替换为 image block。下一轮推理时 eye 的 tool_result
- * 不再是最后一条消息，图片自然不会被注入。
+ * Events hook: find eye actions in the last turn, read images,
+ * replace output with rich content array [{ type: 'image', data, mimeType }, { type: 'text', text }].
+ * Only modifies in-memory events — files keep the original string output.
  */
-async function injectEye(messages) {
-  const last = messages[messages.length - 1];
-  if (!last || last.role !== 'user') return messages;
+async function injectEyeEvents(events) {
+  // Find the last turn number
+  let lastTurn = -1;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].type === 'action' && events[i].turn != null) {
+      lastTurn = events[i].turn;
+      break;
+    }
+  }
+  if (lastTurn < 0) return events;
 
-  const prev = messages[messages.length - 2];
-  if (!prev || prev.role !== 'assistant') return messages;
+  // Check if there are any eye actions in the last turn
+  const hasEye = events.some(e => e.type === 'action' && e.turn === lastTurn && e.tool === 'eye' && typeof e.output === 'string');
+  if (!hasEye) return events;
 
-  for (const block of last.content) {
-    if (block.type !== 'tool_result') continue;
-    const toolUse = prev.content.find(c => c.type === 'tool_use' && c.id === block.tool_use_id);
-    if (!toolUse || toolUse.name !== 'eye') continue;
+  // Shallow clone array, deep clone only eye events we'll modify
+  const result = events.map(e => {
+    if (e.type === 'action' && e.turn === lastTurn && e.tool === 'eye' && typeof e.output === 'string') {
+      return { ...e };
+    }
+    return e;
+  });
 
-    const text = String(block.content);
+  for (const e of result) {
+    if (e.type !== 'action' || e.turn !== lastTurn || e.tool !== 'eye' || typeof e.output !== 'string') continue;
+
+    const text = e.output;
     try {
       let compressed, description;
 
       if (text.startsWith('GRID:')) {
         const lines = text.split('\n');
-        const [, cols, rows, maxStr] = lines[0].split(':');
+        const [, , , maxStr] = lines[0].split(':');
         const maxSize = maxStr ? parseInt(maxStr, 10) : undefined;
         const filePaths = lines.slice(1).map(l => l.replace(/^\[[^\]]*\]\s*/, ''));
         const buffers = filePaths.map(fp => fs.readFileSync(fp));
@@ -139,16 +153,16 @@ async function injectEye(messages) {
         description = 'Image: ' + filePath;
       }
 
-      block.content = [
-        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: compressed.toString('base64') } },
+      e.output = [
+        { type: 'image', data: compressed.toString('base64'), mimeType: 'image/jpeg' },
         { type: 'text', text: description },
       ];
     } catch {
-      // File read / compress failed — keep original text content
+      // keep original string
     }
   }
 
-  return messages;
+  return result;
 }
 
-module.exports = { tools, injectEye, getGrid, getLabel, stitchImages, compressImage };
+module.exports = { tools, injectEyeEvents, getGrid, getLabel, stitchImages, compressImage };

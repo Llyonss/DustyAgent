@@ -6,7 +6,7 @@ const toolLoop = require('../../hooks/tool-loop');
 const toolCmd = require('../../hooks/tool-cmd');
 const toolFile = require('../../hooks/tool-file');
 const toolMedia = require('../../hooks/tool-media');
-const { tools: eyeTools, injectEye } = require('../../hooks/tool-eye');
+const { tools: eyeTools, injectEyeEvents } = require('../../hooks/tool-eye');
 const createLog = require('../../hooks/output-log');
 const { readEvents } = require('../../core/event');
 
@@ -35,7 +35,7 @@ module.exports = function(instanceDir) {
 
     tools: () => tools,
 
-    events: (events) => {
+    events: async (events) => {
       let lastCommit = -1;
       for (let i = events.length - 1; i >= 0; i--) {
         if (events[i].type === 'action' && events[i].tool === 'commit' && !events[i].error) {
@@ -43,32 +43,35 @@ module.exports = function(instanceDir) {
           break;
         }
       }
-      return lastCommit >= 0 ? events.slice(lastCommit + 1) : events;
-    },
+      let filtered = lastCommit >= 0 ? events.slice(lastCommit + 1) : events;
 
-    messages: (messages) => {
+      // Prepend context
       const allEvents = readEvents(eventsDir);
       const commits = allEvents.filter(e => e.type === 'action' && e.tool === 'commit' && !e.error);
       const doc = readDoc();
-      const prefix = [];
+      const ctxEvents = [];
+      const ctxTurn = 0;
 
       if (commits.length > 0) {
         const historyText = commits.map((a, i) =>
           'v' + (i + 1) + ': ' + (a.input && a.input.summary || '(无经历)')
         ).join('\n');
-        prefix.push(
-          { role: 'user', content: [{ type: 'text', text: '过往经历\n' + historyText }] },
-          { role: 'assistant', content: [{ type: 'text', text: '收到。' }] },
+        ctxEvents.push(
+          { type: 'user', content: '过往经历\n' + historyText },
+          { type: 'action', turn: ctxTurn, tool: 'speak', toolUseId: 'ctx_hist', input: {}, output: '收到。' },
         );
       }
 
-      prefix.push(
-        { role: 'user', content: [{ type: 'text', text: '请根据以下心智模型行动:\n<心智>\n' + (doc || '(空)') + '\n</心智>' }] },
-        { role: 'assistant', content: [{ type: 'text', text: '好的, 我会以我的心智模型独立思考并行动, 以心智模型为主去审视吸收信息, 并多和用户讨论, 持续学习成长。' }] },
+      ctxEvents.push(
+        { type: 'user', content: '请根据以下心智模型行动:\n<心智>\n' + (doc || '(空)') + '\n</心智>' },
+        { type: 'action', turn: ctxTurn, tool: 'speak', toolUseId: 'ctx_doc', input: {}, output: '好的, 我会以我的心智模型独立思考并行动, 以心智模型为主去审视吸收信息, 并多和用户讨论, 持续学习成长。' },
       );
 
-      return injectEye([...prefix, ...messages]);
+      filtered = [...ctxEvents, ...filtered];
+      return injectEyeEvents(filtered);
     },
+
+
 
     output: (turn) => log.output(turn),
   };

@@ -1,6 +1,5 @@
 const path = require('path');
 const { readEvents } = require('./event');
-const { buildMessages } = require('./prompt');
 const { infer } = require('./infer');
 const { run } = require('./action');
 
@@ -23,29 +22,24 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
     if (signal && signal.aborted) break;
 
     const events = readEvents(eventsDir);
-    const filtered = hooks.events ? hooks.events(events) : events;
+    const filtered = hooks.events ? await hooks.events(events) : events;
     ctrl.events = filtered;
-    const raw = buildMessages(filtered);
-    const messages = hooks.messages ? await hooks.messages(raw) : raw;
-    const rawSystem = hooks.system ? hooks.system() : undefined;
+    const system = hooks.system ? hooks.system() : undefined;
     const instanceName = path.basename(instanceDir);
     const instanceInfo = { type: 'text', text: `\nInstance: ${instanceName}, instanceDir: ${instanceDir}` };
-    const system = rawSystem ? [...rawSystem, instanceInfo] : [instanceInfo];
+    const rawSystem = system || [];
+    const fullSystem = [...rawSystem, instanceInfo];
     const tools = hooks.tools ? hooks.tools() : [];
 
-    const prompt = { messages };
-    if (system) prompt.system = system;
-    if (tools.length > 0) {
-      prompt.tools = tools.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
-      prompt.tools.at(-1).cache_control = { type: 'ephemeral', ttl: '1h' };
-    }
-
     const start = Date.now();
-    const { output, usage, errors } = await run(infer(prompt, { signal }), eventsDir, ctrl, tools, signal);
+    const { output, usage, errors } = await run(
+      infer(filtered, { system: fullSystem, tools, signal }),
+      eventsDir, ctrl, tools, signal
+    );
     if (signal && signal.aborted) break;
     const duration = Date.now() - start;
 
-    const turn = { prompt, output, usage, duration };
+    const turn = { output, usage, duration };
     if (errors && errors.length > 0) turn.errors = errors;
     if (hooks.output) hooks.output(turn);
     yield turn;

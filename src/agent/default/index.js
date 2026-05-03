@@ -3,7 +3,7 @@ const toolLoop = require('../../hooks/tool-loop');
 const toolCmd = require('../../hooks/tool-cmd');
 const toolFile = require('../../hooks/tool-file');
 const toolMedia = require('../../hooks/tool-media');
-const { tools: eyeTools, injectEye } = require('../../hooks/tool-eye');
+const { tools: eyeTools, injectEyeEvents } = require('../../hooks/tool-eye');
 const createMask = require('../../hooks/message-mask');
 const createLog = require('../../hooks/output-log');
 
@@ -15,8 +15,7 @@ module.exports = function(instanceDir) {
   return {
     system,
     tools: () => tools,
-    events: (events) => mask.events(events),
-    messages: (messages) => injectEye(messages),
+    events: async (events) => injectEyeEvents(mask.events(events)),
     output: (turn) => log.output(turn),
   };
 };

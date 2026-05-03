@@ -1,171 +1,103 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { buildMessages } = require('../core/prompt');
+const { groupEvents } = require('../core/prompt');
 
-describe('buildMessages', () => {
-  it('inserts (session started) when events are empty', () => {
-    const msgs = buildMessages([]);
-    assert.strictEqual(msgs.length, 1);
-    assert.strictEqual(msgs[0].role, 'user');
-    assert.strictEqual(msgs[0].content[0].text, '(session started)');
+describe('groupEvents', () => {
+  it('returns [(session started)] when events are empty', () => {
+    const groups = groupEvents([]);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].type, 'user');
+    assert.deepStrictEqual(groups[0].parts, ['(session started)']);
   });
 
-  it('inserts (session started) when first event is not user', () => {
-    const events = [
-      { type: 'action', turn: 1, tool: 'speak', toolUseId: 'text_1', input: {}, output: 'hello' },
-    ];
-    const msgs = buildMessages(events);
-    assert.strictEqual(msgs[0].role, 'user');
-    assert.strictEqual(msgs[0].content[0].text, '(session started)');
+  it('prepends (session started) when first event is not user', () => {
+    const groups = groupEvents([
+      { type: 'action', turn: 1, tool: 'speak', toolUseId: 'a', input: {}, output: 'Hi' },
+    ]);
+    assert.strictEqual(groups[0].type, 'user');
+    assert.deepStrictEqual(groups[0].parts, ['(session started)']);
+    assert.strictEqual(groups[1].type, 'turn');
   });
 
-  it('builds user message from user event', () => {
-    const events = [
-      { type: 'user', content: 'hello' },
-    ];
-    const msgs = buildMessages(events);
-    assert.strictEqual(msgs.length, 1);
-    assert.strictEqual(msgs[0].role, 'user');
-    assert.strictEqual(msgs[0].content[0].text, 'hello');
+  it('creates user group from user event', () => {
+    const groups = groupEvents([{ type: 'user', content: 'hello' }]);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].type, 'user');
+    assert.deepStrictEqual(groups[0].parts, ['hello']);
   });
 
-  it('merges consecutive user events into one message', () => {
-    const events = [
-      { type: 'user', content: 'line1' },
-      { type: 'user', content: 'line2' },
-    ];
-    const msgs = buildMessages(events);
-    assert.strictEqual(msgs.length, 1);
-    assert.strictEqual(msgs[0].content.length, 2);
-    assert.strictEqual(msgs[0].content[0].text, 'line1');
-    assert.strictEqual(msgs[0].content[1].text, 'line2');
+  it('merges consecutive user events', () => {
+    const groups = groupEvents([
+      { type: 'user', content: 'a' },
+      { type: 'user', content: 'b' },
+    ]);
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].parts, ['a', 'b']);
   });
 
-  it('groups actions by turn into assistant message', () => {
-    const events = [
+  it('groups actions by turn', () => {
+    const groups = groupEvents([
       { type: 'user', content: 'hi' },
-      { type: 'action', turn: 100, tool: 'speak', toolUseId: 'text_1', input: {}, output: 'thinking...' },
-      { type: 'action', turn: 100, tool: 'cmd', toolUseId: 'tool_1', input: { command: 'ls' }, output: 'file.txt' },
-    ];
-    const msgs = buildMessages(events);
-    // user, assistant, user (tool_result)
-    assert.strictEqual(msgs.length, 3);
-
-    const assistant = msgs[1];
-    assert.strictEqual(assistant.role, 'assistant');
-    assert.strictEqual(assistant.content.length, 2);
-    assert.strictEqual(assistant.content[0].type, 'text');
-    assert.strictEqual(assistant.content[0].text, 'thinking...');
-    assert.strictEqual(assistant.content[1].type, 'tool_use');
-    assert.strictEqual(assistant.content[1].name, 'cmd');
-
-    const toolResult = msgs[2];
-    assert.strictEqual(toolResult.role, 'user');
-    assert.strictEqual(toolResult.content[0].type, 'tool_result');
-    assert.strictEqual(toolResult.content[0].tool_use_id, 'tool_1');
-    assert.strictEqual(toolResult.content[0].content, 'file.txt');
+      { type: 'action', turn: 1, tool: 'speak', toolUseId: 'a', input: {}, output: 'Hello' },
+      { type: 'action', turn: 1, tool: 'cmd', toolUseId: 'b', input: { command: 'ls' }, output: 'files' },
+    ]);
+    assert.strictEqual(groups.length, 2);
+    assert.strictEqual(groups[1].type, 'turn');
+    assert.strictEqual(groups[1].turn, 1);
+    assert.strictEqual(groups[1].actions.length, 2);
   });
 
-  it('speak-only action produces assistant message without tool_result', () => {
-    const events = [
+  it('absorbs following user into tool-calling turn as followUp', () => {
+    const groups = groupEvents([
       { type: 'user', content: 'hi' },
-      { type: 'action', turn: 100, tool: 'speak', toolUseId: 'text_1', input: {}, output: 'hello!' },
-    ];
-    const msgs = buildMessages(events);
-    // user, assistant (no tool_result since speak is not a real tool)
-    assert.strictEqual(msgs.length, 2);
-    assert.strictEqual(msgs[1].role, 'assistant');
-    assert.strictEqual(msgs[1].content[0].type, 'text');
+      { type: 'action', turn: 1, tool: 'cmd', toolUseId: 'a', input: {}, output: 'ok' },
+      { type: 'user', content: 'next' },
+    ]);
+    assert.strictEqual(groups.length, 2);
+    assert.strictEqual(groups[1].followUp, 'next');
   });
 
-  it('merges user event after tool_result into same user message', () => {
-    const events = [
-      { type: 'user', content: 'start' },
-      { type: 'action', turn: 100, tool: 'cmd', toolUseId: 'tool_1', input: { command: 'ls' }, output: 'ok' },
-      { type: 'user', content: 'next question' },
-    ];
-    const msgs = buildMessages(events);
-    // user, assistant, user (tool_result + user text merged)
-    assert.strictEqual(msgs.length, 3);
-    const lastUser = msgs[2];
-    assert.strictEqual(lastUser.role, 'user');
-    assert.strictEqual(lastUser.content.length, 2);
-    assert.strictEqual(lastUser.content[0].type, 'tool_result');
-    assert.strictEqual(lastUser.content[1].type, 'text');
-    assert.strictEqual(lastUser.content[1].text, 'next question');
+  it('does NOT absorb user after speak-only turn', () => {
+    const groups = groupEvents([
+      { type: 'user', content: 'hi' },
+      { type: 'action', turn: 1, tool: 'speak', toolUseId: 'a', input: {}, output: 'Hello' },
+      { type: 'user', content: 'next' },
+    ]);
+    assert.strictEqual(groups.length, 3);
+    assert.strictEqual(groups[1].followUp, undefined);
+    assert.strictEqual(groups[2].type, 'user');
   });
 
-  it('handles multiple turns correctly', () => {
-    const events = [
+  it('handles multiple turns', () => {
+    const groups = groupEvents([
       { type: 'user', content: 'q1' },
-      { type: 'action', turn: 100, tool: 'speak', toolUseId: 'text_1', input: {}, output: 'a1' },
+      { type: 'action', turn: 1, tool: 'speak', toolUseId: 'a', input: {}, output: 'a1' },
       { type: 'user', content: 'q2' },
-      { type: 'action', turn: 200, tool: 'speak', toolUseId: 'text_2', input: {}, output: 'a2' },
-    ];
-    const msgs = buildMessages(events);
-    // user(q1), assistant(a1), user(q2), assistant(a2)
-    assert.strictEqual(msgs.length, 4);
-    assert.strictEqual(msgs[0].role, 'user');
-    assert.strictEqual(msgs[1].role, 'assistant');
-    assert.strictEqual(msgs[2].role, 'user');
-    assert.strictEqual(msgs[3].role, 'assistant');
-  });
-
-  it('adds cache_control to last block of last user message', () => {
-    const events = [
-      { type: 'user', content: 'hello' },
-    ];
-    const msgs = buildMessages(events);
-    const lastMsg = msgs[msgs.length - 1];
-    const lastBlock = lastMsg.content[lastMsg.content.length - 1];
-    assert.deepStrictEqual(lastBlock.cache_control, { type: 'ephemeral', ttl: '5m' });
-  });
-
-  it('cache_control is on last user message even with tool_results', () => {
-    const events = [
-      { type: 'user', content: 'start' },
-      { type: 'action', turn: 100, tool: 'cmd', toolUseId: 'tool_1', input: { command: 'ls' }, output: 'ok' },
-    ];
-    const msgs = buildMessages(events);
-    const lastUser = msgs[msgs.length - 1];
-    assert.strictEqual(lastUser.role, 'user');
-    const lastBlock = lastUser.content[lastUser.content.length - 1];
-    assert.deepStrictEqual(lastBlock.cache_control, { type: 'ephemeral', ttl: '5m' });
-  });
-
-  it('handles tool output that is null', () => {
-    const events = [
-      { type: 'user', content: 'go' },
-      { type: 'action', turn: 100, tool: 'stop', toolUseId: 'tool_1', input: {}, output: null },
-    ];
-    const msgs = buildMessages(events);
-    const toolResult = msgs[2].content[0];
-    assert.strictEqual(toolResult.content, '');
+      { type: 'action', turn: 2, tool: 'cmd', toolUseId: 'b', input: {}, output: 'r2' },
+      { type: 'user', content: 'q3' },
+    ]);
+    assert.strictEqual(groups.length, 4); // user, turn1, user, turn2(+followUp)
+    assert.strictEqual(groups[3].followUp, 'q3');
   });
 
   it('skips unknown event types', () => {
-    const events = [
+    const groups = groupEvents([
       { type: 'user', content: 'hi' },
       { type: 'error', message: 'oops' },
-      { type: 'action', turn: 100, tool: 'speak', toolUseId: 'text_1', input: {}, output: 'hey' },
-    ];
-    const msgs = buildMessages(events);
-    // user, assistant — error event is skipped
-    assert.strictEqual(msgs.length, 2);
+      { type: 'user', content: 'again' },
+    ]);
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].parts, ['hi', 'again']);
   });
 
-  it('multiple tool calls in same turn produce multiple tool_results', () => {
-    const events = [
-      { type: 'user', content: 'go' },
-      { type: 'action', turn: 100, tool: 'read', toolUseId: 'tool_1', input: { path: 'a.txt' }, output: 'aaa' },
-      { type: 'action', turn: 100, tool: 'read', toolUseId: 'tool_2', input: { path: 'b.txt' }, output: 'bbb' },
-    ];
-    const msgs = buildMessages(events);
-    // user, assistant (2 tool_use), user (2 tool_result)
-    assert.strictEqual(msgs.length, 3);
-    assert.strictEqual(msgs[1].content.length, 2);
-    assert.strictEqual(msgs[2].content.length, 2);
-    assert.strictEqual(msgs[2].content[0].tool_use_id, 'tool_1');
-    assert.strictEqual(msgs[2].content[1].tool_use_id, 'tool_2');
+  it('does not absorb user after thinking-only turn', () => {
+    const groups = groupEvents([
+      { type: 'user', content: 'hi' },
+      { type: 'action', turn: 1, tool: 'thinking', toolUseId: 'a', input: {}, output: 'hmm' },
+      { type: 'action', turn: 1, tool: 'speak', toolUseId: 'b', input: {}, output: 'Hello' },
+      { type: 'user', content: 'next' },
+    ]);
+    assert.strictEqual(groups[1].followUp, undefined);
+    assert.strictEqual(groups[2].type, 'user');
   });
 });

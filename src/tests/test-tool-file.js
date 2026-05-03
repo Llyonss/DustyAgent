@@ -30,7 +30,7 @@ describe('read', () => {
     fs.writeFileSync(fp, 'hello\nworld\nfoo');
     const readResult = await file.execute({ path: fp });
     assert.strictEqual(readResult, 'hello\nworld\nfoo');
-    await file.execute({ path: fp, old: 'hello\nworld', new: 'replaced' });
+    await file.execute({ path: fp, select: 'hello\nworld', set: 'replaced' });
     assert.strictEqual(fs.readFileSync(fp, 'utf-8'), 'replaced\nfoo');
   });
 
@@ -74,26 +74,33 @@ describe('read', () => {
     assert.strictEqual(result, 'hello world');
   });
 
-  it('from_line/to_line returns specified range', async () => {
+  it('lines="3-5" returns specified range', async () => {
     const fp = path.join(tmpDir, 'range.txt');
     const lines = Array.from({ length: 10 }, (_, i) => `line${i + 1}`);
     fs.writeFileSync(fp, lines.join('\n'));
-    const result = await file.execute({ path: fp, from_line: 3, to_line: 5 });
+    const result = await file.execute({ path: fp, lines: '3-5' });
     assert.strictEqual(result, 'line3\nline4\nline5');
   });
 
-  it('from_line only reads to end', async () => {
+  it('lines="4-" reads to end', async () => {
     const fp = path.join(tmpDir, 'range.txt');
     fs.writeFileSync(fp, 'a\nb\nc\nd\ne');
-    const result = await file.execute({ path: fp, from_line: 4 });
+    const result = await file.execute({ path: fp, lines: '4-' });
     assert.strictEqual(result, 'd\ne');
   });
 
-  it('to_line only reads from start', async () => {
+  it('lines="-2" reads from start', async () => {
     const fp = path.join(tmpDir, 'range.txt');
     fs.writeFileSync(fp, 'a\nb\nc\nd\ne');
-    const result = await file.execute({ path: fp, to_line: 2 });
+    const result = await file.execute({ path: fp, lines: '-2' });
     assert.strictEqual(result, 'a\nb');
+  });
+
+  it('lines="3" reads single line', async () => {
+    const fp = path.join(tmpDir, 'range.txt');
+    fs.writeFileSync(fp, 'a\nb\nc\nd\ne');
+    const result = await file.execute({ path: fp, lines: '3' });
+    assert.strictEqual(result, 'c');
   });
 
   it('truncates when exceeding 500 lines', async () => {
@@ -117,7 +124,7 @@ describe('read', () => {
     assert.ok(result.includes('of 50 lines'));
   });
 
-  it('skips unchanged check when using line range', async () => {
+  it('skips unchanged check when using lines range', async () => {
     const fp = path.join(tmpDir, 'test.txt');
     fs.writeFileSync(fp, 'a\nb\nc');
     const ctrl = {
@@ -125,7 +132,7 @@ describe('read', () => {
         { type: 'action', tool: 'file', input: { path: fp }, output: 'a\nb\nc' },
       ],
     };
-    const result = await file.execute({ path: fp, from_line: 1, to_line: 3 }, ctrl);
+    const result = await file.execute({ path: fp, lines: '1-3' }, ctrl);
     assert.strictEqual(result, 'a\nb\nc');
   });
 });
@@ -134,24 +141,24 @@ describe('edit', () => {
   it('replaces exact substring', async () => {
     const fp = path.join(tmpDir, 'test.txt');
     fs.writeFileSync(fp, 'hello world');
-    await file.execute({ path: fp, old: 'world', new: 'earth' });
+    await file.execute({ path: fp, select: 'world', set: 'earth' });
     assert.strictEqual(fs.readFileSync(fp, 'utf-8'), 'hello earth');
   });
 
-  it('fails when old text not found', async () => {
+  it('fails when select text not found', async () => {
     const fp = path.join(tmpDir, 'test.txt');
     fs.writeFileSync(fp, 'hello world');
     await assert.rejects(
-      () => file.execute({ path: fp, old: 'missing', new: 'x' }),
+      () => file.execute({ path: fp, select: 'missing', set: 'x' }),
       /text not found/
     );
   });
 
-  it('fails when old text matches multiple locations', async () => {
+  it('fails when select text matches multiple locations', async () => {
     const fp = path.join(tmpDir, 'test.txt');
     fs.writeFileSync(fp, 'aaa bbb aaa');
     await assert.rejects(
-      () => file.execute({ path: fp, old: 'aaa', new: 'x' }),
+      () => file.execute({ path: fp, select: 'aaa', set: 'x' }),
       /found 2 matches/
     );
   });
@@ -159,21 +166,21 @@ describe('edit', () => {
   it('preserves rest of file content', async () => {
     const fp = path.join(tmpDir, 'test.txt');
     fs.writeFileSync(fp, 'aaa\nbbb\nccc\nddd');
-    await file.execute({ path: fp, old: 'bbb\nccc', new: 'xxx' });
+    await file.execute({ path: fp, select: 'bbb\nccc', set: 'xxx' });
     assert.strictEqual(fs.readFileSync(fp, 'utf-8'), 'aaa\nxxx\nddd');
   });
 });
 
 describe('write', () => {
-  it('creates file with content', async () => {
+  it('creates file with set', async () => {
     const fp = path.join(tmpDir, 'new.txt');
-    await file.execute({ path: fp, content: 'hello' });
+    await file.execute({ path: fp, set: 'hello' });
     assert.strictEqual(fs.readFileSync(fp, 'utf-8'), 'hello');
   });
 
   it('creates directories recursively', async () => {
     const fp = path.join(tmpDir, 'a', 'b', 'c.txt');
-    await file.execute({ path: fp, content: 'deep' });
+    await file.execute({ path: fp, set: 'deep' });
     assert.strictEqual(fs.readFileSync(fp, 'utf-8'), 'deep');
   });
 });
@@ -184,5 +191,28 @@ describe('delete', () => {
     fs.writeFileSync(fp, 'bye');
     await file.execute({ path: fp, delete: true });
     assert.ok(!fs.existsSync(fp));
+  });
+});
+
+describe('list', () => {
+  it('lists directory tree', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'sub'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'a.txt'), '');
+    fs.writeFileSync(path.join(tmpDir, 'sub', 'b.txt'), '');
+    const result = await file.execute({ path: tmpDir, list: true });
+    assert.ok(result.includes('sub/'));
+    assert.ok(result.includes('a.txt'));
+    assert.ok(result.includes('b.txt'));
+  });
+
+  it('ignores node_modules and .git', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'node_modules'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'a.txt'), '');
+    fs.writeFileSync(path.join(tmpDir, 'node_modules', 'x.js'), '');
+    const result = await file.execute({ path: tmpDir, list: true });
+    assert.ok(result.includes('a.txt'));
+    assert.ok(!result.includes('node_modules'));
+    assert.ok(!result.includes('.git'));
   });
 });

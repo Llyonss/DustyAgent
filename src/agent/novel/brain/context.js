@@ -134,4 +134,19 @@ function buildContextMessages(snapshot) {
   ];
 }
 
-module.exports = { parseFrontMatter, buildSnapshot, writeSnapshot, loadSnapshot, ensureSnapshot, buildContextMessages, scanMdFiles, scanChapters, tryRead };
+function buildContextEvents(snapshot) {
+  const messages = buildContextMessages(snapshot);
+  if (messages.length === 0) return [];
+  const events = [];
+  for (const msg of messages) {
+    const text = msg.content.map(c => c.text || '').join('\n');
+    if (msg.role === 'user') {
+      events.push({ type: 'user', content: text });
+    } else if (msg.role === 'assistant') {
+      events.push({ type: 'action', turn: 0, tool: 'speak', toolUseId: 'ctx_' + events.length, input: {}, output: text });
+    }
+  }
+  return events;
+}
+
+module.exports = { parseFrontMatter, buildSnapshot, writeSnapshot, loadSnapshot, ensureSnapshot, buildContextMessages, buildContextEvents, scanMdFiles, scanChapters, tryRead };
