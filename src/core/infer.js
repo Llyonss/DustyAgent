@@ -6,12 +6,14 @@ function formatError(e) {
   return (tag ? `[${tag}] ` : '') + (e.message || String(e));
 }
 
-async function* infer(events, { system, tools, signal, extra } = {}) {
-  const provider = require(`./providers/${process.env.LLM_PROVIDER || 'anthropic'}`);
+async function* infer(events, { system, tools, signal, extra, model } = {}) {
+  const providerName = model?.provider || process.env.LLM_PROVIDER || 'anthropic';
+  const provider = require(`./providers/${providerName}`);
   const prompt = provider.buildMessages(groupEvents(events), system, tools);
+  yield { type: 'request', system, tools, messages: prompt };
 
   let stream;
-  try { stream = await provider.createStream(prompt, signal, extra); }
+  try { stream = await provider.createStream(prompt, signal, extra, model); }
   catch (e) { yield { type: 'error', message: formatError(e) }; return; }
 
   const ctx = provider.initCtx();
@@ -24,7 +26,7 @@ async function* infer(events, { system, tools, signal, extra } = {}) {
     return;
   }
 
-  yield { type: 'usage', usage: ctx.usage };
+  yield { type: 'response', ...(ctx.response || {}) };
 }
 
 module.exports = { infer, formatError };

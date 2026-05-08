@@ -12,6 +12,10 @@
   </div>
   <div id="info-bar">
     <span id="agent-badge"></span>
+    <div id="model-switcher">
+      <button id="model-trigger" onclick="toggleModelDropdown(event)">默认(.env)</button>
+      <div id="model-dropdown" style="display:none"></div>
+    </div>
     <button id="doc-btn" style="display:none" onclick="openDoc()">🧠 心智</button>
     <span id="cost-bar"></span>
   </div>

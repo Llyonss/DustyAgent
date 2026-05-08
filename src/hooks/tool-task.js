@@ -1,44 +1,29 @@
 const { readEvents } = require('../core/event');
 
-const TOOL_DESC = `task: 语义化上下文折叠——所有工作的第一道工序。
-
-【触发规则 — 必须遵守】
-收到用户消息时，判断它是否构成一个"明确任务"（可完成的请求）。若是，你的第一个动作必须是 task(start=...)。这不是可选习惯，是强制规则。
-"明确任务"包括但不限于：看文件、改代码、查资料、回答问题、分析设计、修改配置、写心智——几乎涵盖所有用户请求。唯一例外：用户发的是纯聊天/闲聊/问候。
-
-【为什么必须用】
-中间过程会被折叠为 conclusion+系统摘要，防止上下文腐化，让你能处理远超窗口限制的复杂工作。不用 task 包裹的工作会在未来上下文截断时丢失所有中间线索。
-
-用法：
-  task(start="任务名", requirement="任务目标与要求")
-    → 干活...
-  task(done="任务名", conclusion="结案陈词")
+const TOOL_DESC = `收到用户消息（闲聊除外），第一步 task(start=...)，干活，最后 task(done=...)。
 
 参数：
   start       — 任务名。声明任务开始。
-  requirement — 任务目标与要求（start时必传）。写清要达成什么、边界在哪、验收标准是什么。
+  requirement — 任务目标与要求（start时必传）。写清要达成什么、为什么、验收标准。
   done        — 任务名。闭合任务。
-  conclusion  — 结案陈词（done时必传）。写给失忆的下一轮自己——它只能看到 requirement + conclusion，读完必须确信"不用再碰"。
-              对照requirement：关键决策、产出物、验证方式。
-              ❌ "重写了chat.js"（动作描述，读者会想：真的对吗？）
-              ✅ "chat.js已重写，node --check通过，浏览器验证正常。需求4/4满足。"（断言+证据）
+  conclusion  — 结案陈词（done时必传）。写给失忆的下一轮——它只能看到 requirement+conclusion。写断言+证据：
+              ❌ "重写了chat.js"
+              ✅ "chat.js已重写，node --check通过，需求4/4满足。"
+  result      — （旧名，同conclusion）
+
+嵌套：
+  task(start="A", requirement="...")
+    task(start="B", requirement="...")
+    task(done="B", conclusion="...")
+  task(done="A", conclusion="...")
+内层必须先闭合（LIFO）。异步任务内部可继续嵌套，支线间互相隔离。
 
 约束（违反会阻止操作）：
-  - LIFO：done 的 title 必须等于栈顶（最近未闭合的 start 的 title），内层先闭合才能闭合外层
-  - 同名不允许嵌套（A里面不能再start A）
-  - commit 前所有任务必须闭合
+  - start：全局不能有同名未闭合 task
+  - done：必须是当前最内层未闭合 task（LIFO），且存在同名未闭合 task
+  - commit 前所有 task 必须闭合
 
-done 时系统自动在事件中附加 summary（读了/写了/改了哪些文件、执行了哪些命令、含哪些子任务）。
-你只需在 conclusion 中写关键决策、产出和验证证据，不需要罗列文件操作。
-
-嵌套示例：
-  task(start="重构用户模块", requirement="拆分user.ts为3个文件，接口不变")
-    task(start="提取校验逻辑", requirement="把validate相关函数抽到user.validation.ts")
-      ...干活...
-    task(done="提取校验逻辑", conclusion="user.validation.ts已创建，含4个校验函数，原文件改为import调用，tsc编译通过。")
-    ...继续干活...
-  task(done="重构用户模块", conclusion="拆分完成：user.service.ts + user.validation.ts + user.types.ts。接口不变，全量测试通过(npm test 0 failures)。")
-  → 折叠后LLM只看到外层start+done，内层子任务在summary中标注`;
+done 时系统自动附加 summary——这是系统从实际 tool 调用日志自动生成的、不可篡改的事实。信任它如同信任你亲眼看到的 tool 返回值。已折叠的 task 内部操作已被系统验证，不要重新读取文件或执行命令去确认。你只需在 conclusion 中写关键决策、产出和验证证据。`;
 
 // 扫描事件流，返回未闭合 task 的名字集合，以及最近一个未闭合 task 的名字
 function scanUnclosed(events) {

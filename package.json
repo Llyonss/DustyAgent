@@ -7,8 +7,10 @@
     "web": "node src/web/index.js",
     "novel": "node src/agent/novel/web/index.js",
     "mental": "node src/agent/mental/web/index.js",
+    "mental-v2": "node src/agent/mental/web2/index.js",
     "mental:restart": "src\\agent\\mental\\restart.bat",
     "mental:stop": "src\\agent\\mental\\stop.bat",
+    "tunnel": "node src/tunnel.js",
     "game": "node src/agent/game/web/index.js",
     "test": "node --test src/tests/test-event.js src/tests/test-prompt.js src/tests/test-action.js src/tests/test-infer.js src/tests/test-loop.js src/tests/test-web-abort.js"
   },
@@ -18,6 +20,10 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "openai": "^6.35.0",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "ssh2": "^1.17.0"
   }
 }

@@ -15,13 +15,14 @@ async function* gen(events) { for (const e of events) yield e; }
 const noopCtrl = { stop: () => {}, wait: () => {}, signal: undefined };
 
 describe('run', () => {
-  it('handles action(speak) — writes speak event and returns output', async () => {
+  it('handles speak block — writes speak event and returns output', async () => {
     const dir = tmpDir();
     const { output } = await run(gen([
+      { type: 'delta', start: true, id: 's1', tool: 'speak' },
       { type: 'delta', id: 's1', tool: 'speak', content: 'Hello ' },
       { type: 'delta', id: 's1', tool: 'speak', content: 'world' },
-      { type: 'action', id: 's1', tool: 'speak', output: 'Hello world' },
-      { type: 'usage', usage: { input_tokens: 10, output_tokens: 5 } },
+      { type: 'delta', done: true, id: 's1', tool: 'speak', output: 'Hello world' },
+      { type: 'response', usage: { input_tokens: 10, output_tokens: 5 } },
     ]), dir, { ...noopCtrl }, [], undefined);
     assert.strictEqual(output.length, 1);
     assert.strictEqual(output[0].type, 'text_block');
@@ -37,8 +38,9 @@ describe('run', () => {
     let stopped = false;
     const ctrl = { ...noopCtrl, stop: () => { stopped = true; } };
     await run(gen([
-      { type: 'action', id: 's1', tool: 'speak', output: 'Hi' },
-      { type: 'usage', usage: {} },
+      { type: 'delta', start: true, id: 's1', tool: 'speak' },
+      { type: 'delta', done: true, id: 's1', tool: 'speak', output: 'Hi' },
+      { type: 'response', usage: {} },
     ]), dir, ctrl, [], undefined);
     assert.ok(stopped);
   });
@@ -49,8 +51,9 @@ describe('run', () => {
     const ctrl = { ...noopCtrl, stop: () => { stopped = true; } };
     const tools = [{ name: 'cmd', execute: async () => 'ok' }];
     await run(gen([
-      { type: 'action', id: 't1', tool: 'cmd', input: { command: 'ls' } },
-      { type: 'usage', usage: {} },
+      { type: 'delta', start: true, id: 't1', tool: 'cmd' },
+      { type: 'delta', done: true, id: 't1', tool: 'cmd', input: { command: 'ls' } },
+      { type: 'response', usage: {} },
     ]), dir, ctrl, tools, undefined);
     assert.ok(!stopped);
   });
@@ -59,9 +62,10 @@ describe('run', () => {
     const dir = tmpDir();
     const tools = [{ name: 'cmd', execute: async (input) => 'result: ' + input.command }];
     const { output } = await run(gen([
+      { type: 'delta', start: true, id: 't1', tool: 'cmd' },
       { type: 'delta', id: 't1', tool: 'cmd', content: '{"command":"ls"}' },
-      { type: 'action', id: 't1', tool: 'cmd', input: { command: 'ls' } },
-      { type: 'usage', usage: {} },
+      { type: 'delta', done: true, id: 't1', tool: 'cmd', input: { command: 'ls' } },
+      { type: 'response', usage: {} },
     ]), dir, { ...noopCtrl }, tools, undefined);
     assert.strictEqual(output[0].type, 'tool_use');
     assert.strictEqual(output[0].name, 'cmd');
@@ -76,8 +80,9 @@ describe('run', () => {
     const dir = tmpDir();
     const tools = [{ name: 'cmd', execute: async () => { throw new Error('fail'); } }];
     await run(gen([
-      { type: 'action', id: 't1', tool: 'cmd', input: {} },
-      { type: 'usage', usage: {} },
+      { type: 'delta', start: true, id: 't1', tool: 'cmd' },
+      { type: 'delta', done: true, id: 't1', tool: 'cmd', input: {} },
+      { type: 'response', usage: {} },
     ]), dir, { ...noopCtrl }, tools, undefined);
     const events = readEvents(dir);
     const action = events.find(e => e.tool === 'cmd');
@@ -98,13 +103,15 @@ describe('run', () => {
     assert.ok(events.some(e => e.type === 'error'));
   });
 
-  it('thinking action is persisted without execution', async () => {
+  it('thinking block is persisted without execution', async () => {
     const dir = tmpDir();
     await run(gen([
+      { type: 'delta', start: true, id: 'th1', tool: 'thinking' },
       { type: 'delta', id: 'th1', tool: 'thinking', content: 'hmm' },
-      { type: 'action', id: 'th1', tool: 'thinking', output: 'hmm let me think' },
-      { type: 'action', id: 's1', tool: 'speak', output: 'Hello' },
-      { type: 'usage', usage: {} },
+      { type: 'delta', done: true, id: 'th1', tool: 'thinking', output: 'hmm let me think' },
+      { type: 'delta', start: true, id: 's1', tool: 'speak' },
+      { type: 'delta', done: true, id: 's1', tool: 'speak', output: 'Hello' },
+      { type: 'response', usage: {} },
     ]), dir, { ...noopCtrl }, [], undefined);
     const events = readEvents(dir);
     const thinking = events.find(e => e.tool === 'thinking');
@@ -117,7 +124,7 @@ describe('run', () => {
     let stopped = false;
     const ctrl = { ...noopCtrl, stop: () => { stopped = true; } };
     const { errors } = await run(gen([
-      { type: 'usage', usage: { input_tokens: 100, output_tokens: 1 } },
+      { type: 'response', usage: { input_tokens: 100, output_tokens: 1 } },
     ]), dir, ctrl, [], undefined);
     assert.ok(stopped);
     assert.ok(errors.length > 0);

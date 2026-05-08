@@ -1,93 +1,92 @@
-// === Global State ===
+// === 心智前端 — 入口 ===
+// 职责：初始化启动，连接所有模块
+
+import { Data } from './data.js';
+import { Instance } from './instance.js';
+import { View } from './view.js';
+import { Graph } from './graph/index.js';
+import { Tree } from './graph/tree.js';
+import { Content } from './content/index.js';
+import { Chat } from './chat/index.js';
+import { Preset } from './preset.js';
+import { Screenshot } from './screenshot.js';
+
+// 全局工具函数
+window.esc = function(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+window.md = function(s) { try { return marked.parse(s || ''); } catch { return '<pre>' + window.esc(s) + '</pre>'; } };
+
 const App = {
-  instance: localStorage.getItem('mental-instance') || '',
-  currentMental: null,
-  pollTimer: null,
-  lastEventsJson: '',
-  isRunning: false,
-
   async init() {
-    const list = await (await fetch('/api/instances')).json();
-    const sel = document.getElementById('instanceSelect');
-    sel.innerHTML = list.map(n => `<option value="${n}" ${n === App.instance ? 'selected' : ''}>${n}</option>`).join('');
-    if (!App.instance && list.length) App.instance = list[0];
-    sel.value = App.instance;
-    sel.addEventListener('change', () => {
-      App.instance = sel.value;
-      localStorage.setItem('mental-instance', App.instance);
-      App.lastEventsJson = '';
-      App.reload();
-    });
-    App.reload();
-  },
+    bindEvents();
 
-  async reload() {
-    Graph.load();
-    Tree.load();
+    await Instance.init();
+    await Preset.init();
+
+    const graphData = await Data.fetchGraph();
+    Graph.render(graphData);
+    Tree.renderMental(graphData);
+
+    Screenshot.init();
     Chat.startPoll();
-
-  },
-
-  async newInstance() {
-    const name = prompt('实例名:');
-    if (!name) return;
-    await fetch('/api/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-    App.instance = name;
-    localStorage.setItem('mental-instance', name);
-    const sel = document.getElementById('instanceSelect');
-    sel.innerHTML += `<option value="${name}">${name}</option>`;
-    sel.value = name;
-    App.lastEventsJson = '';
-    App.reload();
-  },
-
-  async deleteInstance() {
-    if (!App.instance) return;
-    if (!confirm(`确定删除实例 "${App.instance}"？所有对话和故事将被永久删除。`)) return;
-    await fetch('/api/instances', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: App.instance }) });
-    const list = await (await fetch('/api/instances')).json();
-    const sel = document.getElementById('instanceSelect');
-    sel.innerHTML = list.map(n => `<option value="${n}">${n}</option>`).join('');
-    App.instance = list[0] || '';
-    sel.value = App.instance;
-    localStorage.setItem('mental-instance', App.instance);
-    App.lastEventsJson = '';
-    App.reload();
-  },
-
-  // Mobile: tab switching
-  switchTab(tab) {
-    const chatPanel = document.getElementById('chatPanel');
-    const mentalPanel = document.getElementById('mentalPanel');
-    document.querySelectorAll('.mobile-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-    if (tab === 'chat') {
-      chatPanel.classList.remove('mobile-hidden');
-      mentalPanel.classList.remove('mobile-show');
-    } else {
-      chatPanel.classList.add('mobile-hidden');
-      mentalPanel.classList.add('mobile-show');
-      setTimeout(() => Graph.render(), 50);
-    }
-    App.closeSidebar();
-  },
-
-  // Mobile: sidebar drawer
-  toggleSidebar() {
-    const sidebar = document.getElementById('mentalSidebar');
-    const overlay = document.getElementById('sidebarOverlay');
-    if (sidebar.classList.contains('sidebar-open')) {
-      App.closeSidebar();
-    } else {
-      sidebar.classList.add('sidebar-open');
-      overlay.classList.add('open');
-    }
-  },
-
-  closeSidebar() {
-    document.getElementById('mentalSidebar')?.classList.remove('sidebar-open');
-    document.getElementById('sidebarOverlay')?.classList.remove('open');
-  },
+  }
 };
 
-function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-function md(s) { try { return marked.parse(s || ''); } catch { return '<pre>' + esc(s) + '</pre>'; } }
+function bindEvents() {
+  document.getElementById('instanceSelect').addEventListener('change', () => {
+    Instance.switch(document.getElementById('instanceSelect').value);
+  });
+  document.getElementById('btnNewInstance').addEventListener('click', () => Instance.create());
+  document.getElementById('btnDeleteInstance').addEventListener('click', () => Instance.remove());
+  document.getElementById('btnRestart').addEventListener('click', () => Instance.restart());
+
+  document.getElementById('sendBtn').addEventListener('click', () => Chat.send());
+  document.getElementById('stopBtn').addEventListener('click', () => Chat.abort());
+  document.getElementById('btnHistory').addEventListener('click', () => Chat.toggleHistory());
+  const chatInput = document.getElementById('chatInput');
+  chatInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); Chat.send(); }
+  });
+  chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+  });
+
+  document.querySelectorAll('.mobile-tab').forEach(t => {
+    t.addEventListener('click', () => View.switchTab(t.dataset.tab));
+  });
+  document.getElementById('btnToggleSidebar').addEventListener('click', () => View.toggleSidebar());
+  document.getElementById('sidebarOverlay').addEventListener('click', () => View.closeSidebar());
+
+  document.getElementById('btnShowGraph').addEventListener('click', () => Content.showGraph());
+  document.getElementById('btnEditContent').addEventListener('click', () => Content.editContent());
+  document.getElementById('btnEditLinks').addEventListener('click', () => Content.editLinks());
+  document.getElementById('btnBackToGraph').addEventListener('click', () => Content.showGraph());
+  document.getElementById('btnMentalStories').addEventListener('click', () => Content.showRelatedStories());
+
+  document.getElementById('btnSelf').addEventListener('click', () => Content.select('self'));
+  document.getElementById('modelToggle').addEventListener('click', () => Content.toggleModel());
+  document.getElementById('btnEditModel').addEventListener('click', e => { e.stopPropagation(); Content.editModel(); });
+  document.getElementById('btnModelSave').addEventListener('click', () => Content.saveModel());
+  document.getElementById('btnModelCancel').addEventListener('click', () => Content.cancelModel());
+  document.getElementById('systemPromptToggle').addEventListener('click', () => Content.toggleSystemPrompt());
+  document.getElementById('btnEditSystem').addEventListener('click', e => { e.stopPropagation(); Content.editSystem(); });
+  document.getElementById('toolsToggle').addEventListener('click', () => Content.toggleTools());
+  document.getElementById('btnNewTool').addEventListener('click', e => { e.stopPropagation(); Content.newTool(); });
+
+  document.getElementById('btnSaveEdit').addEventListener('click', () => Content.saveEdit());
+  document.getElementById('btnCancelEdit').addEventListener('click', () => Content.cancelEdit());
+  document.getElementById('editTextarea').addEventListener('keydown', e => {
+    if (e.key === 's' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); Content.saveEdit(); }
+    if (e.key === 'Escape') Content.cancelEdit();
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const ta = e.target, s = ta.selectionStart;
+      ta.value = ta.value.substring(0, s) + '  ' + ta.value.substring(ta.selectionEnd);
+      ta.selectionStart = ta.selectionEnd = s + 2;
+    }
+  });
+
+  document.getElementById('btnStoryBack').addEventListener('click', () => Content.showGraph());
+}
+
+App.init();

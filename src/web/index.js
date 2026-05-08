@@ -172,6 +172,41 @@ app.delete('/api/loop', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Model presets
+app.get('/api/model-presets', (req, res) => {
+  const { instanceDir } = resolve(req.query.instance);
+  const presetsPath = path.join(__dirname, '../../model-presets.json');
+  let presets = {};
+  let current = null;
+  try {
+    presets = JSON.parse(fs.readFileSync(presetsPath, 'utf-8'));
+    const modelPath = path.join(instanceDir, 'model.json');
+    if (fs.existsSync(modelPath)) {
+      const model = JSON.parse(fs.readFileSync(modelPath, 'utf-8'));
+      current = model._preset || null;
+    }
+  } catch (e) { /* fall through */ }
+  res.json({ presets, current });
+});
+
+app.post('/api/model', (req, res) => {
+  const { instanceDir, eventsDir } = resolve(req.query.instance);
+  ensureDirs({ eventsDir });
+  const { preset } = req.body;
+  if (!preset) return res.status(400).json({ error: 'preset required' });
+  const presetsPath = path.join(__dirname, '../../model-presets.json');
+  try {
+    const presets = JSON.parse(fs.readFileSync(presetsPath, 'utf-8'));
+    const config = presets[preset];
+    if (!config) return res.status(400).json({ error: 'preset not found: ' + preset });
+    const model = { ...config, _preset: preset };
+    fs.writeFileSync(path.join(instanceDir, 'model.json'), JSON.stringify(model, null, 2), 'utf-8');
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {

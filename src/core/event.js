@@ -27,4 +27,32 @@ function writeEvent(eventsDir, event) {
   return { ts, file };
 }
 
-module.exports = { readEvents, writeEvent };
+/** 开始一个 action 事件，返回 handle */
+function beginAction(eventsDir, { turn, tool, toolUseId, toInput }) {
+  const { file } = writeEvent(eventsDir, {
+    type: 'action', turn, tool, toolUseId,
+    input:  toInput ? '' : {},
+    output: toInput ? {} : '',
+  });
+  return { file, raw: '', toInput };
+}
+
+/** 增量追加 chunk */
+function appendAction(handle, chunk) {
+  handle.raw += chunk || '';
+  const event = JSON.parse(fs.readFileSync(handle.file, 'utf-8'));
+  handle.toInput ? event.input  = handle.raw
+                 : event.output = handle.raw;
+  fs.writeFileSync(handle.file, JSON.stringify(event, null, 2));
+}
+
+/** 闭合：写入最终 input/output */
+function finishAction(handle, { input, output, error }) {
+  const event = JSON.parse(fs.readFileSync(handle.file, 'utf-8'));
+  if (input  != null) event.input  = input;
+  if (output != null) event.output = output;
+  if (error) event.error = true;
+  fs.writeFileSync(handle.file, JSON.stringify(event, null, 2));
+}
+
+module.exports = { readEvents, writeEvent, beginAction, appendAction, finishAction };

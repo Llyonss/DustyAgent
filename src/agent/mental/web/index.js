@@ -53,8 +53,25 @@ function parseLinks(content) {
 }
 
 const app = express();
+
+// Basic Auth - 所有访问都需要密码
+const AUTH_USER = process.env.AUTH_USER || 'dusty';
+const AUTH_PASS = process.env.AUTH_PASS || 'dusty4ever';
+app.use((req, res, next) => {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Basic ')) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="DustyMate"');
+    return res.status(401).send('Authentication required');
+  }
+  const [user, pass] = Buffer.from(auth.slice(6), 'base64').toString().split(':');
+  if (user === AUTH_USER && pass === AUTH_PASS) return next();
+  res.setHeader('WWW-Authenticate', 'Basic realm="DustyMate"');
+  return res.status(401).send('Invalid credentials');
+});
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
 
 // --- Instance list ---
 app.get('/api/instances', (req, res) => {
@@ -87,19 +104,29 @@ app.delete('/api/instances', async (req, res) => {
 
 // --- Events ---
 app.get('/api/events', (req, res) => {
-  const { key, eventsDir } = resolve(req.query.instance);
+  const { key, eventsDir, instanceDir } = resolve(req.query.instance);
   try {
-    res.json({ events: readEvents(eventsDir), running: loops.has(key) });
-  } catch { res.json({ events: [], running: false }); }
+    let usages = [];
+    try { usages = JSON.parse(fs.readFileSync(path.join(instanceDir, 'usage.json'), 'utf-8')); } catch {}
+    res.json({ events: readEvents(eventsDir), running: loops.has(key), usages });
+  } catch { res.json({ events: [], running: false, usages: [] }); }
 });
 
 app.delete('/api/events', (req, res) => {
-  const { instance, file, mode } = req.body;
-  if (!instance || !file || !mode) return res.status(400).json({ error: 'instance, file, mode required' });
+  const { instance, file, mode, files } = req.body;
   const { key, eventsDir } = resolve(instance);
   // 运行中禁止删除
   if (loops.has(key)) return res.status(409).json({ error: 'loop running, stop first' });
   try {
+    if (Array.isArray(files) && files.length > 0) {
+      let deleted = 0;
+      for (const f of files) {
+        const fp = path.join(eventsDir, f);
+        if (fs.existsSync(fp)) { fs.unlinkSync(fp); deleted++; }
+      }
+      return res.json({ ok: true, deleted });
+    }
+    if (!file || !mode) return res.status(400).json({ error: 'file and mode required, or files array' });
     const events = readEvents(eventsDir);
     const idx = events.findIndex(e => e._file === file);
     if (idx === -1) return res.status(404).json({ error: 'event not found' });
@@ -160,6 +187,21 @@ app.delete('/api/loop', async (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Restart ---
+app.post('/api/restart', (req, res) => {
+  res.json({ ok: true });
+  if (!server) { process.exit(1); return; }
+  server.close(() => {
+    const { spawn } = require('child_process');
+    const child = spawn('node', ['src/agent/mental/web/index.js'], {
+      detached: true, stdio: 'ignore',
+      cwd: path.join(__dirname, '../../../..')
+    });
+    child.unref();
+    process.exit(0);
+  });
+});
+
 // --- Graph: nodes + edges for force-directed graph ---
 app.get('/api/graph', (req, res) => {
   try {
@@ -191,6 +233,61 @@ app.get('/api/room', (req, res) => {
     const links = tryRead(path.join(roomsDir, name + '.links'));
     res.json({ name, content: md, links });
   } catch (e) { res.status(404).json({ error: e.message }); }
+});
+
+// --- Model presets ---
+const presetsPath = path.join(__dirname, '../../../../model-presets.json');
+function readPresets() {
+  try { return JSON.parse(fs.readFileSync(presetsPath, 'utf-8')); } catch { return {}; }
+}
+function detectPreset(config, presets) {
+  if (!config || !Object.keys(config).filter(k => k !== '_preset').length) return null;
+  const cfg = { provider: config.provider, apiKey: config.apiKey, baseUrl: config.baseUrl, model: config.model };
+  for (const [name, preset] of Object.entries(presets)) {
+    if (preset.provider === cfg.provider && preset.apiKey === cfg.apiKey && preset.baseUrl === cfg.baseUrl && preset.model === cfg.model) {
+      return name;
+    }
+  }
+  return null;
+}
+
+app.get('/api/model-presets', (req, res) => {
+  const presets = readPresets();
+  const { instanceDir } = resolve(req.query.instance);
+  let current = null, hasConfig = false;
+  try {
+    const config = JSON.parse(fs.readFileSync(path.join(instanceDir, 'model.json'), 'utf-8'));
+    current = config._preset || detectPreset(config, presets);
+    hasConfig = Object.keys(config).filter(k => k !== '_preset').length > 0;
+  } catch {}
+  res.json({ presets: Object.fromEntries(Object.entries(presets).map(([k, v]) => [k, { provider: v.provider, baseUrl: v.baseUrl, model: v.model }])), current, hasConfig });
+});
+
+// --- Model config ---
+app.get('/api/model', (req, res) => {
+  const { instanceDir } = resolve(req.query.instance);
+  try {
+    const content = fs.readFileSync(path.join(instanceDir, 'model.json'), 'utf-8');
+    res.json(JSON.parse(content));
+  } catch { res.json({}); }
+});
+
+app.post('/api/model', (req, res) => {
+  const { instance, config, preset } = req.body;
+  if (!instance) return res.status(400).json({ error: 'instance required' });
+  const { instanceDir } = resolve(instance);
+  ensureInstance(instanceDir);
+  try {
+    let data = config;
+    if (preset) {
+      const presets = readPresets();
+      data = presets[preset];
+      if (!data) return res.status(400).json({ error: 'unknown preset: ' + preset });
+      data = { ...data, _preset: preset };
+    }
+    fs.writeFileSync(path.join(instanceDir, 'model.json'), JSON.stringify(data || {}, null, 2), 'utf-8');
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // --- Instance data ---
@@ -357,9 +454,23 @@ app.get('/api/mental-stories', (req, res) => {
   } catch { res.json([]); }
 });
 
+// --- Screenshot ---
+const { getScreenshot } = require('../../../../scripts/screenshot');
+
+app.get('/api/screenshot', async (req, res) => {
+  try {
+    const b64 = await getScreenshot();
+    if (!b64) return res.status(500).json({ error: 'screenshot unavailable' });
+    res.json({ image: b64, timestamp: Date.now() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+let server = null;
 if (require.main === module) {
   const PORT = process.env.MENTAL_PORT || 3003;
-  app.listen(PORT, '0.0.0.0', () => console.log('Mental Web running at http://0.0.0.0:' + PORT));
+  server = app.listen(PORT, '0.0.0.0', () => console.log('Mental Web running at http://0.0.0.0:' + PORT));
 }
 
-module.exports = { app, loops };
+module.exports = { app, loops, get server() { return server; } };

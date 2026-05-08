@@ -104,6 +104,7 @@ function switchInstance(name) {
   poll();
   pollUsage();
   pollInfo();
+  loadModelPresets();
 }
 
 async function loadInstances() {
@@ -854,6 +855,92 @@ renderMarkdown = function(text) {
   return linkifyPaths(_originalRenderMarkdown(text));
 };
 
+// ===== Model Switcher =====
+const modelTrigger = document.getElementById('model-trigger');
+const modelDropdown = document.getElementById('model-dropdown');
+let modelPresets = {};
+let modelCurrent = null;
+
+async function loadModelPresets() {
+  try {
+    const res = await fetch('/api/model-presets?instance=' + encodeURIComponent(currentInstance));
+    const data = await res.json();
+    modelPresets = data.presets || {};
+    modelCurrent = data.current;
+    renderModelTrigger();
+    renderModelDropdown();
+  } catch (e) { /* ignore */ }
+}
+
+function renderModelTrigger() {
+  if (modelCurrent && modelPresets[modelCurrent]) {
+    modelTrigger.textContent = modelCurrent;
+    modelTrigger.className = 'preset-active';
+  } else if (modelCurrent === null && Object.keys(modelPresets).length > 0) {
+    modelTrigger.textContent = '默认(.env)';
+    modelTrigger.className = '';
+  } else {
+    modelTrigger.textContent = '自定义';
+    modelTrigger.className = '';
+  }
+}
+
+function renderModelDropdown() {
+  const names = Object.keys(modelPresets);
+  if (names.length === 0) {
+    modelDropdown.innerHTML = '<div class="model-item muted">无预设</div>';
+    return;
+  }
+  modelDropdown.innerHTML = names.map(name => {
+    const cfg = modelPresets[name];
+    const label = cfg.provider + ' · ' + (cfg.model || '').replace('anthropic/', '');
+    const sel = name === modelCurrent ? ' selected' : '';
+    return '<div class="model-item' + sel + '" data-preset="' + esc(name) + '" onclick="selectPreset(\'' + esc(name) + '\')">'
+      + '<span class="model-check">' + (sel ? '●' : '○') + '</span>'
+      + '<span class="model-name">' + esc(name) + '</span>'
+      + '<span class="model-label">' + esc(label) + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function toggleModelDropdown(e) {
+  e.stopPropagation();
+  if (modelDropdown.style.display === 'none') {
+    modelDropdown.style.display = '';
+  } else {
+    modelDropdown.style.display = 'none';
+  }
+}
+
+async function selectPreset(name) {
+  modelDropdown.style.display = 'none';
+  try {
+    const res = await fetch('/api/model?instance=' + encodeURIComponent(currentInstance), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preset: name }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      modelTrigger.classList.add('preset-error');
+      setTimeout(() => modelTrigger.classList.remove('preset-error'), 600);
+      return;
+    }
+    modelCurrent = name;
+    renderModelTrigger();
+    renderModelDropdown();
+    modelTrigger.classList.add('preset-ok');
+    setTimeout(() => modelTrigger.classList.remove('preset-ok'), 600);
+  } catch (e) {
+    modelTrigger.classList.add('preset-error');
+    setTimeout(() => modelTrigger.classList.remove('preset-error'), 600);
+  }
+}
+
+document.addEventListener('click', () => {
+  modelDropdown.style.display = 'none';
+});
+
 // ===== Init =====
 loadInstances();
 pollInfo();
@@ -862,3 +949,4 @@ setInterval(pollUsage, 2000);
 setInterval(loadInstances, 3000);
 poll();
 pollUsage();
+loadModelPresets();

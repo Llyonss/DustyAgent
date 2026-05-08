@@ -3,7 +3,7 @@ const fs = require('fs');
 const { readEvents } = require('../../../core/event');
 const { getUnclosedTasks } = require('../../../hooks/tool-task');
 
-module.exports = function(instanceDir, mentalRoot) {
+module.exports = function(instanceDir, mentalRoot, hooks = {}) {
   const roomsDir = path.join(mentalRoot, 'space');
   const historyDir = path.join(instanceDir, 'history');
   const instancesDir = path.join(mentalRoot, 'instances');
@@ -362,15 +362,18 @@ module.exports = function(instanceDir, mentalRoot) {
         if (input.delete) {
           if (input.select) {
             doEdit(filePath, input.select, '');
+            hooks.onWrite?.(input.name, input.name);
             return 'ok';
           }
           if (isLink) {
             try { fs.unlinkSync(filePath); } catch {}
+            hooks.onWrite?.(input.name, input.name);
             return 'ok';
           }
           try { fs.unlinkSync(resolveMd(input.name)); } catch {}
           try { fs.unlinkSync(resolveLinks(input.name)); } catch {}
           try { fs.unlinkSync(resolveSummary(input.name)); } catch {}
+          hooks.onWrite?.(input.name, input.name);
           return 'ok';
         }
 
@@ -384,6 +387,7 @@ module.exports = function(instanceDir, mentalRoot) {
               if (cycle) return `错误：编辑会导致父链接循环（涉及 "${cycle}"），已拒绝。`;
             }
             doEdit(filePath, input.select, input.set);
+            hooks.onWrite?.(input.name, input.name);
           } else {
             if (isLink && input.name) {
               const cycle = detectParentCycle(input.name, input.set);
@@ -391,6 +395,7 @@ module.exports = function(instanceDir, mentalRoot) {
             }
             fs.mkdirSync(path.dirname(filePath), { recursive: true });
             fs.writeFileSync(filePath, input.set);
+            hooks.onWrite?.(input.name, input.name);
           }
           return 'ok';
         }

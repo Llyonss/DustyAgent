@@ -3,14 +3,18 @@ require('dotenv').config();
 
 let client, key;
 
-function createStream(prompt, signal, extra) {
-  const k = `${process.env.LLM_API_KEY}|${process.env.LLM_BASE_URL}`;
+function createStream(prompt, signal, extra, config) {
+  const apiKey = config?.apiKey || process.env.LLM_API_KEY;
+  const baseURL = config?.baseUrl || process.env.LLM_BASE_URL || undefined;
+  const model = config?.model || process.env.LLM_MODEL;
+
+  const k = `${apiKey}|${baseURL}`;
   if (!client || key !== k) {
-    client = new OpenAI({ apiKey: process.env.LLM_API_KEY, baseURL: process.env.LLM_BASE_URL || undefined });
+    client = new OpenAI({ apiKey, baseURL });
     key = k;
   }
   const params = {
-    model: process.env.LLM_MODEL, stream: true, stream_options: { include_usage: true },
+    model, stream: true, stream_options: { include_usage: true },
     messages: prompt.messages, ...(extra || {}),
   };
   if (prompt.tools) params.tools = prompt.tools;
@@ -22,7 +26,7 @@ function initCtx() {
     tools: new Map(),
     text: '', thinking: '',
     textId: 'speak_' + Date.now(), thinkId: 'thinking_' + Date.now(),
-    usage: {},
+    response: null,
   };
 }
 
@@ -76,34 +80,63 @@ function buildMessages(groups, system, tools) {
   return { messages, tools: oaiTools };
 }
 
+function mapUsage(u) {
+  return {
+    input_tokens: u.prompt_tokens || 0,
+    output_tokens: u.completion_tokens || 0,
+    total_tokens: u.total_tokens || 0,
+    cache_read_input_tokens: u.prompt_cache_hit_tokens || u.prompt_tokens_details?.cached_tokens || 0,
+    cache_creation_input_tokens: u.prompt_cache_miss_tokens || 0,
+  };
+}
+
 function* match(e, ctx) {
   if (!e.choices?.[0]) {
-    if (e.usage) ctx.usage = { input_tokens: e.usage.prompt_tokens, output_tokens: e.usage.completion_tokens };
+    if (e.usage) ctx.response = { id: e.id, model: e.model, usage: mapUsage(e.usage) };
     return;
   }
 
   const d = e.choices[0].delta || {};
 
+  // thinking 增量
   const r = d.reasoning_content || d.reasoning;
-  if (r) { ctx.thinking += r; yield { type: 'delta', id: ctx.thinkId, tool: 'thinking', content: r }; }
+  if (r) {
+    if (!ctx.thinking) yield { type: 'delta', start: true, id: ctx.thinkId, tool: 'thinking' };
+    ctx.thinking += r;
+    yield { type: 'delta', id: ctx.thinkId, tool: 'thinking', content: r };
+  }
 
-  if (d.content) { ctx.text += d.content; yield { type: 'delta', id: ctx.textId, tool: 'speak', content: d.content }; }
+  // speak 增量
+  if (d.content) {
+    if (!ctx.text) yield { type: 'delta', start: true, id: ctx.textId, tool: 'speak' };
+    ctx.text += d.content;
+    yield { type: 'delta', id: ctx.textId, tool: 'speak', content: d.content };
+  }
 
+  // tool_call 增量
   for (const tc of d.tool_calls || []) {
     let t = ctx.tools.get(tc.index);
-    if (!t) { t = { id: tc.id || `tool_${tc.index}_${Date.now()}`, name: tc.function?.name || '', args: '' }; ctx.tools.set(tc.index, t); }
-    if (tc.function?.arguments) { t.args += tc.function.arguments; yield { type: 'delta', id: t.id, tool: t.name, content: tc.function.arguments }; }
+    if (!t) {
+      t = { id: tc.id || `tool_${tc.index}_${Date.now()}`, name: tc.function?.name || '', args: '' };
+      ctx.tools.set(tc.index, t);
+      yield { type: 'delta', start: true, id: t.id, tool: t.name };
+    }
+    if (tc.function?.arguments) {
+      t.args += tc.function.arguments;
+      yield { type: 'delta', id: t.id, tool: t.name, content: tc.function.arguments };
+    }
   }
 
   if (!e.choices[0].finish_reason) return;
 
-  if (ctx.thinking) yield { type: 'action', id: ctx.thinkId, tool: 'thinking', output: ctx.thinking };
-  if (ctx.text) yield { type: 'action', id: ctx.textId, tool: 'speak', output: ctx.text };
+  // 块完成
+  if (ctx.thinking) yield { type: 'delta', done: true, id: ctx.thinkId, tool: 'thinking', output: ctx.thinking };
+  if (ctx.text) yield { type: 'delta', done: true, id: ctx.textId, tool: 'speak', output: ctx.text };
 
   for (const t of ctx.tools.values()) {
     let input = {};
     if (t.args) { try { input = JSON.parse(t.args); } catch (err) { yield { type: 'error', message: 'JSON parse error: ' + err.message }; continue; } }
-    yield { type: 'action', id: t.id, tool: t.name, input };
+    yield { type: 'delta', done: true, id: t.id, tool: t.name, input };
   }
 }
 

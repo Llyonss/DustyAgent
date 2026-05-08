@@ -10,22 +10,30 @@
 </head>
 <body>
 
-<!-- 移动端 Tab 栏（桌面隐藏） -->
 <div class="mobile-tabs" id="mobileTabs">
-  <div class="mobile-tab active" data-tab="chat" onclick="App.switchTab('chat')">💬 对话</div>
-  <div class="mobile-tab" data-tab="mental" onclick="App.switchTab('mental')">🧠 心智</div>
+  <div class="mobile-tab active" data-tab="chat">💬 对话</div>
+  <div class="mobile-tab" data-tab="mental">🧠 心智</div>
 </div>
 
-<!-- 左栏：对话 45% -->
 <div id="chatPanel">
   <div class="chat-header">
     <div class="header-left">
       <select id="instanceSelect"></select>
-      <button class="btn-icon" onclick="App.newInstance()" title="新建实例">+</button>
-      <button class="btn-icon" onclick="App.deleteInstance()" title="删除实例">−</button>
+      <div class="preset-wrapper" id="presetWrapper">
+        <div class="preset-trigger" id="presetTrigger" title="切换 LLM 预设">
+          <span id="presetIcon">◇</span>
+          <span id="presetLabel">默认(.env)</span>
+          <span class="preset-arrow">▾</span>
+        </div>
+        <div class="preset-dropdown hidden" id="presetDropdown"></div>
+      </div>
+      <button class="btn-icon" id="btnNewInstance" title="新建实例">+</button>
+      <button class="btn-icon" id="btnDeleteInstance" title="删除实例">−</button>
     </div>
     <div class="header-right">
-      <button class="btn-text" onclick="Chat.toggleHistory()">📜 故事</button>
+      <button class="btn-text" id="btnRestart" title="重启服务">🔄</button>
+      <button class="btn-text" id="btnHistory" title="故事">📜 故事</button>
+      <button class="btn-text" id="btnScreenshot" title="屏幕预览">🖥️ 屏幕</button>
       <span id="runningIndicator" class="hidden">●</span>
     </div>
   </div>
@@ -33,27 +41,25 @@
   <div id="chatMessages" class="chat-messages"></div>
   <div class="chat-input">
     <textarea id="chatInput" placeholder="发消息..." rows="1"></textarea>
-    <button id="sendBtn" onclick="Chat.send()">发送</button>
-    <button id="stopBtn" class="hidden" onclick="Chat.abort()">停止</button>
+    <button id="sendBtn">发送</button>
+    <button id="stopBtn" class="hidden">停止</button>
   </div>
 </div>
 
-<!-- 右栏：心智面板 55% -->
 <div id="mentalPanel">
   <div class="mental-sidebar" id="mentalSidebar">
     <div class="sidebar-header">
       <span class="sidebar-title">心智</span>
-      <button class="btn-icon btn-small" onclick="Mental.showGraph()" title="图谱">◎</button>
+      <button class="btn-icon btn-small" id="btnShowGraph" title="图谱">◎</button>
     </div>
     <div id="mentalTree"></div>
-    <div class="sidebar-self" onclick="Mental.select('self')">◆ self</div>
+    <div class="sidebar-self" id="btnSelf">◆ self</div>
     <div id="storyTree"></div>
   </div>
-  <div class="sidebar-overlay" id="sidebarOverlay" onclick="App.toggleSidebar()"></div>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
   <div class="mental-main" id="mentalMain">
-    <!-- 移动端工具条（桌面隐藏） -->
     <div class="mental-mobile-bar" id="mentalMobileBar">
-      <button class="btn-icon btn-small" onclick="App.toggleSidebar()">☰</button>
+      <button class="btn-icon btn-small" id="btnToggleSidebar">☰</button>
       <span class="mental-mobile-title">心智图谱</span>
     </div>
     <div id="graphView">
@@ -63,29 +69,45 @@
       <div class="content-bar">
         <span id="contentName">选择一个心智</span>
         <div class="content-actions">
-          <button class="btn-icon btn-small" onclick="Mental.showMentalStories()" title="相关故事">📜</button>
-          <button class="btn-icon btn-small" onclick="Mental.edit('content')" title="编辑内容">✏️</button>
-          <button class="btn-icon btn-small" onclick="Mental.edit('links')" title="编辑链接">🔗</button>
-          <button class="btn-icon btn-small" onclick="Mental.showGraph()" title="返回图谱">◎</button>
+          <button class="btn-icon btn-small" id="btnMentalStories" title="相关故事">📜</button>
+          <button class="btn-icon btn-small" id="btnEditContent" title="编辑内容">✏️</button>
+          <button class="btn-icon btn-small" id="btnEditLinks" title="编辑链接">🔗</button>
+          <button class="btn-icon btn-small" id="btnBackToGraph" title="返回图谱">◎</button>
         </div>
       </div>
       <div id="contentScroll">
+        <div id="modelSection" class="hidden">
+          <div class="model-header" id="modelToggle">
+            <span class="model-label">▸ Model</span>
+            <button class="btn-icon btn-small" id="btnEditModel" title="编辑模型配置">✏️</button>
+          </div>
+          <div id="modelBody" class="model-body collapsed"></div>
+          <div id="modelEditForm" class="model-edit-form hidden">
+            <label>Provider <input type="text" id="modelProvider" placeholder="anthropic / openai / claude-code"></label>
+            <label>Model <input type="text" id="modelModel" placeholder="模型名"></label>
+            <label>Base URL <input type="text" id="modelBaseUrl" placeholder="API 地址"></label>
+            <label>API Key <input type="text" id="modelApiKey" placeholder="密钥"></label>
+            <div class="model-edit-actions">
+              <button class="btn" id="btnModelCancel">取消</button>
+              <button class="btn btn-primary" id="btnModelSave">保存</button>
+            </div>
+          </div>
+        </div>
         <div id="systemPromptSection" class="hidden">
-          <div class="system-prompt-header" onclick="Mental.togglePanel('systemPromptBody')">
+          <div class="system-prompt-header" id="systemPromptToggle">
             <span class="system-prompt-label">▸ System Prompt</span>
-            <button class="btn-icon btn-small" onclick="event.stopPropagation();Mental.edit('system')" title="编辑 System Prompt">✏️</button>
+            <button class="btn-icon btn-small" id="btnEditSystem" title="编辑 System Prompt">✏️</button>
           </div>
           <div id="systemPromptBody" class="system-prompt-body collapsed"></div>
           <div id="systemEnvInfo" class="system-env-info"></div>
         </div>
         <div id="toolsSection" class="hidden">
-          <div class="tools-header" onclick="Mental.togglePanel('toolsList')">
+          <div class="tools-header" id="toolsToggle">
             <span class="tools-label">▸ Tools</span>
-            <button class="btn-icon btn-small" onclick="event.stopPropagation();Mental.newTool()" title="新增工具">+</button>
+            <button class="btn-icon btn-small" id="btnNewTool" title="新增工具">+</button>
           </div>
           <div id="toolsList" class="collapsed"></div>
         </div>
-        <div id="messagePreview" class="hidden"></div>
         <div id="contentBody"><div class="empty">从目录或图谱选择心智</div></div>
         <div id="contentLinks"></div>
       </div>
@@ -93,7 +115,10 @@
         <textarea id="editTextarea"></textarea>
         <div class="edit-bar">
           <span id="editLabel"></span>
-          <div><button class="btn" onclick="Mental.cancelEdit()">取消</button> <button class="btn btn-primary" onclick="Mental.saveEdit()">保存</button></div>
+          <div>
+            <button class="btn" id="btnCancelEdit">取消</button>
+            <button class="btn btn-primary" id="btnSaveEdit">保存</button>
+          </div>
         </div>
       </div>
     </div>
@@ -101,7 +126,7 @@
       <div class="content-bar">
         <span id="storyTitle">故事</span>
         <div class="content-actions">
-          <button class="btn-icon btn-small" onclick="Mental.showGraph()" title="返回图谱">◎</button>
+          <button class="btn-icon btn-small" id="btnStoryBack" title="返回图谱">◎</button>
         </div>
       </div>
       <div id="storyScroll">
@@ -112,11 +137,18 @@
   </div>
 </div>
 
-<script src="app.js?v=2"></script>
-<script src="chat.js?v=2"></script>
-<script src="graph.js?v=2"></script>
-<script src="tree.js?v=2"></script>
-<script src="mental.js?v=2"></script>
-<script>App.init();</script>
+<!-- 屏幕预览面板 -->
+<div id="screenshotPanel" class="hidden">
+  <div class="screenshot-header">
+    <span>🖥️ 屏幕预览</span>
+    <button class="btn-icon btn-small" id="btnScreenshotRefresh" title="刷新">🔄</button>
+    <button class="btn-icon btn-small" id="btnScreenshotClose" title="关闭">✕</button>
+  </div>
+  <div class="screenshot-body">
+    <img id="screenshotImg" alt="screen" />
+  </div>
+</div>
+
+<script type="module" src="./app.js"></script>
 </body>
 </html>

@@ -1,6 +1,8 @@
 node_modules/
 instances/
 .env
+model-presets.json
+server.log
 DustyAgent_local/
 projects/
 novels/

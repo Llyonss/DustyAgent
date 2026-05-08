@@ -3,14 +3,18 @@ require('dotenv').config();
 
 let client, key;
 
-function createStream(prompt, signal, extra) {
-  const k = `${process.env.LLM_API_KEY}|${process.env.LLM_BASE_URL}`;
+function createStream(prompt, signal, extra, config) {
+  const apiKey = config?.apiKey || process.env.LLM_API_KEY;
+  const baseURL = config?.baseUrl || process.env.LLM_BASE_URL;
+  const model = config?.model || process.env.LLM_MODEL;
+
+  const k = `${apiKey}|${baseURL}`;
   if (!client || key !== k) {
     client = new Anthropic({
       apiKey: 'placeholder',
-      baseURL: process.env.LLM_BASE_URL,
+      baseURL,
       defaultHeaders: {
-        'authorization': `Bearer ${process.env.LLM_API_KEY}`,
+        'authorization': `Bearer ${apiKey}`,
         'anthropic-beta': 'oauth-2025-04-20,interleaved-thinking-2025-05-14',
         'anthropic-dangerous-direct-browser-access': 'true',
         'user-agent': 'claude-cli/2.1.76 (external, cli)',
@@ -29,13 +33,24 @@ function createStream(prompt, signal, extra) {
     key = k;
   }
   return client.messages.create({
-    model: process.env.LLM_MODEL, max_tokens: 16000,
+    model, max_tokens: 16000,
     thinking: { type: 'enabled', budget_tokens: 10000 },
     ...prompt, ...(extra || {}), stream: true,
   }, { signal });
 }
 
-function initCtx() { return { block: null, id: null, content: '', json: '', usage: {} }; }
+function initCtx() { return { block: null, id: null, content: '', json: '', response: null, _rawUsage: {} }; }
+
+function mapAnthropicUsage(raw) {
+  const i = raw.input_tokens || 0, o = raw.output_tokens || 0;
+  return {
+    input_tokens: i,
+    output_tokens: o,
+    total_tokens: i + o,
+    cache_read_input_tokens: raw.cache_read_input_tokens || 0,
+    cache_creation_input_tokens: raw.cache_creation_input_tokens || 0,
+  };
+}
 
 function buildMessages(groups, system, tools) {
   const messages = [];
@@ -96,36 +111,46 @@ function buildMessages(groups, system, tools) {
 function* match(e, ctx) {
 
   if (e.type === 'message_start') {
-    if (e.message?.usage) ctx.usage = { ...e.message.usage };
+    ctx.response = { id: e.message?.id, model: e.message?.model, usage: null };
+    if (e.message?.usage) ctx._rawUsage = { ...e.message.usage };
     return;
   }
 
+  // content_block_start → delta(start:true)
   if (e.type === 'content_block_start') {
     ctx.block = e.content_block;
     ctx.id = ctx.block.id || `${ctx.block.type}_${e.index}`;
     ctx.content = '';
     ctx.json = '';
+    const tool = ctx.block.type === 'text' ? 'speak'
+               : ctx.block.type === 'thinking' ? 'thinking'
+               : ctx.block.name;
+    yield { type: 'delta', start: true, id: ctx.id, tool };
     return;
   }
 
-  if (e.type === 'content_block_delta' && e.delta.type === 'text_delta') {
-    ctx.content += e.delta.text;
-    yield { type: 'delta', id: ctx.id, tool: 'speak', content: e.delta.text };
-    return;
-  }
-
+  // thinking 增量
   if (e.type === 'content_block_delta' && e.delta.type === 'thinking_delta') {
     ctx.content += e.delta.thinking;
     yield { type: 'delta', id: ctx.id, tool: 'thinking', content: e.delta.thinking };
     return;
   }
 
+  // text 增量
+  if (e.type === 'content_block_delta' && e.delta.type === 'text_delta') {
+    ctx.content += e.delta.text;
+    yield { type: 'delta', id: ctx.id, tool: 'speak', content: e.delta.text };
+    return;
+  }
+
+  // json 增量
   if (e.type === 'content_block_delta' && e.delta.type === 'input_json_delta') {
     ctx.json += e.delta.partial_json;
     yield { type: 'delta', id: ctx.id, tool: ctx.block.name, content: e.delta.partial_json };
     return;
   }
 
+  // tool_use 完成 → delta(done:true, input)
   if (e.type === 'content_block_stop' && ctx.block?.type === 'tool_use') {
     const name = ctx.block.name;
     let input = {};
@@ -134,24 +159,27 @@ function* match(e, ctx) {
       catch (err) { ctx.block = null; yield { type: 'error', message: 'JSON parse error: ' + err.message }; return; }
     }
     ctx.block = null;
-    yield { type: 'action', id: ctx.id, tool: name, input };
+    yield { type: 'delta', done: true, id: ctx.id, tool: name, input };
     return;
   }
 
+  // thinking 完成 → delta(done:true, output)
   if (e.type === 'content_block_stop' && ctx.block?.type === 'thinking') {
-    yield { type: 'action', id: ctx.id, tool: 'thinking', output: ctx.content };
+    yield { type: 'delta', done: true, id: ctx.id, tool: 'thinking', output: ctx.content };
     ctx.block = null;
     return;
   }
 
+  // text 完成 → delta(done:true, output)
   if (e.type === 'content_block_stop' && ctx.block?.type === 'text') {
-    if (ctx.content) yield { type: 'action', id: ctx.id, tool: 'speak', output: ctx.content };
+    if (ctx.content) yield { type: 'delta', done: true, id: ctx.id, tool: 'speak', output: ctx.content };
     ctx.block = null;
     return;
   }
 
   if (e.type === 'message_delta') {
-    if (e.usage) ctx.usage = { ...ctx.usage, ...e.usage };
+    if (e.usage) Object.assign(ctx._rawUsage, e.usage);
+    ctx.response.usage = mapAnthropicUsage(ctx._rawUsage);
     return;
   }
 }

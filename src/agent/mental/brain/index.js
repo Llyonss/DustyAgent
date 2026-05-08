@@ -42,18 +42,18 @@ function resolveTools(builtins, instanceDir) {
   return [...result.values()];
 }
 
-function getBuiltins(instanceDir) {
+function getBuiltins(instanceDir, hooks) {
   const mentalRoot = path.join(instanceDir, '..', '..');
   return [
-    ...createMentalTools(instanceDir, mentalRoot),
+    ...createMentalTools(instanceDir, mentalRoot, hooks),
     ...toolLoop, ...toolCmd, ...toolFile, ...toolMedia, ...eyeTools,
     taskTool,
   ];
 }
 
-function createAgent(instanceDir) {
+function createAgent(instanceDir, hooks) {
   const log = createLog(instanceDir);
-  const builtinTools = getBuiltins(instanceDir);
+  const builtinTools = getBuiltins(instanceDir, hooks);
 
   return {
     system: createSystem(instanceDir),

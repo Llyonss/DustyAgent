@@ -92,8 +92,7 @@ function spliceTurns(result, fromIdx, toIdx, keep) {
   const toRemove = [];
   for (let j = fromIdx; j < toIdx; j++) {
     const turn = result[j].turn;
-    if (turn == null) continue; // 保留 user/error 等无 turn 事件
-    if (!keep.has(turn)) toRemove.push(j);
+    if (!keep.has(turn)) toRemove.push(j); // turn==null 时 keep.has(null)=false → 删除
   }
   for (let j = toRemove.length - 1; j >= 0; j--) {
     result.splice(toRemove[j], 1);
@@ -109,7 +108,6 @@ function foldTasks(events) {
 
   const result = [];
   const order = [];       // [{ title, startIdx, turn }]
-  const pairedTurns = new Set();
 
   for (let i = 0; i < events.length; i++) {
     const e = events[i];
@@ -132,22 +130,11 @@ function foldTasks(events) {
         const intermediate = result.slice(startIdx + 1, endIdx);
         const summary = generateSummary(intermediate);
 
-        result[endIdx].output = (result[endIdx].output || '') + '\n[折叠摘要: ' + summary + ']';
+        result[endIdx].output = (result[endIdx].output || '') + '\n[✓系统验证: ' + summary + ']';
 
-        // 保留 start/done turn + 已配对子task turn + user消息后紧跟的agent回复turn
-        const keep = new Set([startTurn, endTurn, ...pairedTurns]);
-        // 扫描 intermediate：user 消息之后紧跟的第一个有 turn 的事件 → 保留该 turn
-        for (let j = startIdx + 1; j < endIdx; j++) {
-          if (result[j].type === 'user' || result[j].type === 'error') {
-            for (let k = j + 1; k < endIdx; k++) {
-              if (result[k].turn != null) { keep.add(result[k].turn); break; }
-            }
-          }
-        }
+        // 只保留外层 start/done turn，中间一切删除
+        const keep = new Set([startTurn, endTurn]);
         spliceTurns(result, startIdx + 1, endIdx, keep);
-
-        pairedTurns.add(startTurn);
-        pairedTurns.add(endTurn);
         order.pop();
       }
     }

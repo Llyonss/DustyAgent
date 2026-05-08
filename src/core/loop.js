@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const { readEvents } = require('./event');
 const { infer } = require('./infer');
 const { run } = require('./action');
@@ -31,16 +32,23 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
     const fullSystem = [...rawSystem, instanceInfo];
     const tools = hooks.tools ? hooks.tools() : [];
 
+    let model = {};
+    try { model = JSON.parse(fs.readFileSync(path.join(instanceDir, 'model.json'), 'utf-8')); } catch {}
+
     const start = Date.now();
-    const { output, usage, errors } = await run(
-      infer(filtered, { system: fullSystem, tools, signal }),
-      eventsDir, ctrl, tools, signal
+    const { output, response, errors } = await run(
+      infer(filtered, { system: fullSystem, tools, signal, model }),
+      eventsDir, ctrl, tools, signal, start
     );
     if (signal && signal.aborted) break;
     const duration = Date.now() - start;
 
-    const turn = { output, usage, duration };
-    if (errors && errors.length > 0) turn.errors = errors;
+    const resp = response || {};
+    resp.start = start;
+    resp.duration = duration;
+    if (errors?.length) resp.errors = errors;
+
+    const turn = { output, response: resp };
     if (hooks.output) hooks.output(turn);
     yield turn;
 

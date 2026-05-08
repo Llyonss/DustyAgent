@@ -1,204 +1,171 @@
-const { describe, it, before, after } = require('node:test');
+const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const http = require('http');
 
-let server;
-let serverPort;
-let serverHandler;
+// Test match() directly — the SSE→event translation, which is the unit we care about.
+// HTTP integration is covered by action.js tests.
 
-function sseEvent(data) {
-  return `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`;
-}
-
-function textResponseSSE(text, { inputTokens = 100, outputTokens = 20 } = {}) {
-  const chunks = [];
-  chunks.push(sseEvent({ type: 'message_start', message: { id: 'msg_test', type: 'message', role: 'assistant', content: [], model: 'test-model', usage: { input_tokens: inputTokens, output_tokens: 0 } } }));
-  chunks.push(sseEvent({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }));
-  const mid = Math.floor(text.length / 2);
-  chunks.push(sseEvent({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: text.slice(0, mid) } }));
-  chunks.push(sseEvent({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: text.slice(mid) } }));
-  chunks.push(sseEvent({ type: 'content_block_stop', index: 0 }));
-  chunks.push(sseEvent({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: outputTokens } }));
-  chunks.push(sseEvent({ type: 'message_stop' }));
-  return chunks.join('');
-}
-
-function toolCallResponseSSE(toolId, toolName, toolInputJson, { text = null, inputTokens = 100, outputTokens = 30 } = {}) {
-  const chunks = [];
-  let blockIndex = 0;
-  chunks.push(sseEvent({ type: 'message_start', message: { id: 'msg_test', type: 'message', role: 'assistant', content: [], model: 'test-model', usage: { input_tokens: inputTokens, output_tokens: 0 } } }));
-  if (text) {
-    chunks.push(sseEvent({ type: 'content_block_start', index: blockIndex, content_block: { type: 'text', text: '' } }));
-    chunks.push(sseEvent({ type: 'content_block_delta', index: blockIndex, delta: { type: 'text_delta', text } }));
-    chunks.push(sseEvent({ type: 'content_block_stop', index: blockIndex }));
-    blockIndex++;
+describe('anthropic match()', () => {
+  function getMatch() {
+    delete require.cache[require.resolve('../core/providers/anthropic')];
+    return require('../core/providers/anthropic').match;
   }
-  chunks.push(sseEvent({ type: 'content_block_start', index: blockIndex, content_block: { type: 'tool_use', id: toolId, name: toolName, input: {} } }));
-  chunks.push(sseEvent({ type: 'content_block_delta', index: blockIndex, delta: { type: 'input_json_delta', partial_json: toolInputJson.slice(0, 5) } }));
-  if (toolInputJson.length > 5) {
-    chunks.push(sseEvent({ type: 'content_block_delta', index: blockIndex, delta: { type: 'input_json_delta', partial_json: toolInputJson.slice(5) } }));
-  }
-  chunks.push(sseEvent({ type: 'content_block_stop', index: blockIndex }));
-  chunks.push(sseEvent({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: outputTokens } }));
-  chunks.push(sseEvent({ type: 'message_stop' }));
-  return chunks.join('');
-}
 
-before(async () => {
-  server = http.createServer((req, res) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => { serverHandler ? serverHandler(req, res, body) : (res.writeHead(500), res.end()); });
+  it('yields delta(start) for content_block_start (text)', () => {
+    const match = getMatch();
+    const ctx = { block:null, id:null, content:'', json:'', usage:{} };
+    const results = [...match(
+      { type:'content_block_start', index:0, content_block:{ type:'text', text:'' } },
+      ctx
+    )];
+    assert.strictEqual(results.length, 1);
+    assert.strictEqual(results[0].type, 'delta');
+    assert.strictEqual(results[0].start, true);
+    assert.strictEqual(results[0].tool, 'speak');
   });
-  await new Promise(resolve => {
-    server.listen(0, '127.0.0.1', () => {
-      serverPort = server.address().port;
-      process.env.LLM_API_KEY = 'test-key';
-      process.env.LLM_MODEL = 'test-model';
-      process.env.LLM_BASE_URL = `http://127.0.0.1:${serverPort}`;
-      resolve();
-    });
+
+  it('yields delta(start) for content_block_start (tool_use)', () => {
+    const match = getMatch();
+    const ctx = { block:null, id:null, content:'', json:'', usage:{} };
+    const results = [...match(
+      { type:'content_block_start', index:0, content_block:{ type:'tool_use', id:'tc1', name:'cmd', input:{} } },
+      ctx
+    )];
+    assert.strictEqual(results.length, 1);
+    assert.strictEqual(results[0].type, 'delta');
+    assert.strictEqual(results[0].start, true);
+    assert.strictEqual(results[0].tool, 'cmd');
+    assert.strictEqual(results[0].id, 'tc1');
+  });
+
+  it('yields delta(content) for text_delta', () => {
+    const match = getMatch();
+    const ctx = { block:{ type:'text' }, id:'text_0', content:'', json:'', usage:{} };
+    const results = [...match(
+      { type:'content_block_delta', index:0, delta:{ type:'text_delta', text:'Hello' } },
+      ctx
+    )];
+    assert.strictEqual(results.length, 1);
+    assert.strictEqual(results[0].type, 'delta');
+    assert.strictEqual(results[0].content, 'Hello');
+    assert.strictEqual(results[0].tool, 'speak');
+  });
+
+  it('yields delta(done,output) for content_block_stop (text)', () => {
+    const match = getMatch();
+    const ctx = { block:{ type:'text' }, id:'text_0', content:'Hello world', json:'', usage:{} };
+    const results = [...match(
+      { type:'content_block_stop', index:0 },
+      ctx
+    )];
+    assert.strictEqual(results.length, 1);
+    assert.strictEqual(results[0].type, 'delta');
+    assert.strictEqual(results[0].done, true);
+    assert.strictEqual(results[0].output, 'Hello world');
+  });
+
+  it('yields delta(done,input) for content_block_stop (tool_use)', () => {
+    const match = getMatch();
+    const ctx = { block:{ type:'tool_use', name:'cmd' }, id:'tc1', json:'{"command":"ls"}', content:'', usage:{} };
+    const results = [...match(
+      { type:'content_block_stop', index:0 },
+      ctx
+    )];
+    assert.strictEqual(results.length, 1);
+    assert.strictEqual(results[0].type, 'delta');
+    assert.strictEqual(results[0].done, true);
+    assert.deepStrictEqual(results[0].input, { command:'ls' });
+  });
+
+  it('yields delta for thinking block', () => {
+    const match = getMatch();
+    const ctx = { block:null, id:null, content:'', json:'', usage:{} };
+    // start
+    const r1 = [...match({ type:'content_block_start', index:0, content_block:{ type:'thinking', thinking:'' } }, ctx)];
+    assert.strictEqual(r1[0].tool, 'thinking');
+    assert.strictEqual(r1[0].start, true);
+    // delta
+    const r2 = [...match({ type:'content_block_delta', index:0, delta:{ type:'thinking_delta', thinking:'hmm' } }, ctx)];
+    assert.strictEqual(r2[0].tool, 'thinking');
+    assert.strictEqual(r2[0].content, 'hmm');
+    // done
+    const r3 = [...match({ type:'content_block_stop', index:0 }, ctx)];
+    assert.strictEqual(r3[0].done, true);
+    assert.strictEqual(r3[0].output, 'hmm');
+  });
+
+  it('yields error on malformed JSON in tool_use', () => {
+    const match = getMatch();
+    const ctx = { block:{ type:'tool_use', name:'cmd' }, id:'tc1', json:'{bad', content:'', usage:{} };
+    const results = [...match({ type:'content_block_stop', index:0 }, ctx)];
+    assert.ok(results.some(r => r.type === 'error'));
+  });
+
+  it('accumulates usage from message_start + message_delta', () => {
+    const match = getMatch();
+    const ctx = { block:null, id:null, content:'', json:'', usage:{} };
+    [...match({ type:'message_start', message:{ usage:{ input_tokens:100, output_tokens:0 } } }, ctx)];
+    [...match({ type:'message_delta', delta:{}, usage:{ output_tokens:42 } }, ctx)];
+    assert.strictEqual(ctx.usage.input_tokens, 100);
+    assert.strictEqual(ctx.usage.output_tokens, 42);
   });
 });
 
-after(async () => { await new Promise(resolve => server.close(resolve)); });
-
-async function collect(gen) { const items = []; for await (const item of gen) items.push(item); return items; }
-
-describe('infer', () => {
-  function getInfer() {
-    // Clear caches
-    Object.keys(require.cache).forEach(key => {
-      if (key.includes('core')) delete require.cache[key];
-    });
-    return require('../core/infer').infer;
+describe('openai match()', () => {
+  function getMatch() {
+    delete require.cache[require.resolve('../core/providers/openai')];
+    return require('../core/providers/openai').match;
   }
 
-  const userEvents = [{ type: 'user', content: 'hi' }];
-
-  it('yields action(speak) for text-only response', async () => {
-    serverHandler = (_req, res) => { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.end(textResponseSSE('Hello world')); };
-    const infer = getInfer();
-    const items = await collect(infer(userEvents, {}));
-    const actions = items.filter(i => i.type === 'action' && i.tool === 'speak');
-    assert.strictEqual(actions.length, 1);
-    assert.strictEqual(actions[0].output, 'Hello world');
-    const usages = items.filter(i => i.type === 'usage');
-    assert.strictEqual(usages.length, 1);
-  });
-
-  it('yields delta(speak) for streaming text', async () => {
-    serverHandler = (_req, res) => { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.end(textResponseSSE('Hello')); };
-    const infer = getInfer();
-    const items = await collect(infer(userEvents, {}));
-    const deltas = items.filter(i => i.type === 'delta' && i.tool === 'speak');
-    assert.ok(deltas.length >= 1);
-    assert.strictEqual(deltas.map(d => d.content).join(''), 'Hello');
-  });
-
-  it('yields action(tool) with parsed input for tool call', async () => {
-    const inputObj = { command: 'echo hello', timeout: 30 };
-    serverHandler = (_req, res) => { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.end(toolCallResponseSSE('tc_1', 'cmd', JSON.stringify(inputObj))); };
-    const infer = getInfer();
-    const items = await collect(infer(userEvents, {}));
-    const actions = items.filter(i => i.type === 'action' && i.tool === 'cmd');
-    assert.strictEqual(actions.length, 1);
-    assert.strictEqual(actions[0].id, 'tc_1');
-    assert.deepStrictEqual(actions[0].input, inputObj);
-  });
-
-  it('yields both speak and tool actions when response has both', async () => {
-    serverHandler = (_req, res) => { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.end(toolCallResponseSSE('tc_1', 'read', '{"path":"f.txt"}', { text: 'Let me read.' })); };
-    const infer = getInfer();
-    const items = await collect(infer(userEvents, {}));
-    const speaks = items.filter(i => i.type === 'action' && i.tool === 'speak');
-    const tools = items.filter(i => i.type === 'action' && i.tool === 'read');
-    assert.strictEqual(speaks.length, 1);
-    assert.strictEqual(tools.length, 1);
-  });
-
-  it('yields error on HTTP error', async () => {
-    serverHandler = (_req, res) => { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'fail' } })); };
-    const infer = getInfer();
-    const items = await collect(infer(userEvents, {}));
-    assert.ok(items.some(i => i.type === 'error'));
-  });
-
-  it('handles empty tool input', async () => {
-    serverHandler = (_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-      const chunks = [];
-      chunks.push(sseEvent({ type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', content: [], model: 'test', usage: { input_tokens: 50, output_tokens: 0 } } }));
-      chunks.push(sseEvent({ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'tc', name: 'stop', input: {} } }));
-      chunks.push(sseEvent({ type: 'content_block_stop', index: 0 }));
-      chunks.push(sseEvent({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 5 } }));
-      chunks.push(sseEvent({ type: 'message_stop' }));
-      res.end(chunks.join(''));
+  function newCtx() {
+    const ts = Date.now();
+    return {
+      tools: new Map(),
+      text:'', thinking:'',
+      textId:'speak_'+ts, thinkId:'thinking_'+ts,
+      usage:{},
     };
-    const infer = getInfer();
-    const items = await collect(infer(userEvents, {}));
-    const actions = items.filter(i => i.type === 'action' && i.tool === 'stop');
-    assert.strictEqual(actions.length, 1);
-    assert.deepStrictEqual(actions[0].input, {});
+  }
+
+  it('yields delta(start+content) for text content', () => {
+    const match = getMatch();
+    const ctx = newCtx();
+    const results = [];
+    for (const y of match({ choices:[{ delta:{ content:'Hello' } }] }, ctx)) results.push(y);
+    assert.strictEqual(results.length, 2); // start + content
+    assert.strictEqual(results[0].start, true);
+    assert.strictEqual(results[0].tool, 'speak');
+    assert.strictEqual(results[1].content, 'Hello');
   });
 
-  it('merges usage', async () => {
-    serverHandler = (_req, res) => { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.end(textResponseSSE('test', { inputTokens: 150, outputTokens: 42 })); };
-    const infer = getInfer();
-    const items = await collect(infer(userEvents, {}));
-    const usage = items.find(i => i.type === 'usage').usage;
-    assert.strictEqual(usage.input_tokens, 150);
-    assert.strictEqual(usage.output_tokens, 42);
+  it('yields delta(done,output) on finish_reason', () => {
+    const match = getMatch();
+    const ctx = newCtx();
+    ctx.text = 'Hello';
+    const results = [...match({ choices:[{ finish_reason:'stop', delta:{} }] }, ctx)];
+    assert.strictEqual(results.length, 1);
+    assert.strictEqual(results[0].done, true);
+    assert.strictEqual(results[0].output, 'Hello');
   });
 
-  it('yields error when connection fails', async () => {
-    const origBase = process.env.LLM_BASE_URL;
-    process.env.LLM_BASE_URL = 'http://127.0.0.1:1';
-    const infer = getInfer();
-    const items = await collect(infer(userEvents, {}));
-    process.env.LLM_BASE_URL = origBase;
-    assert.ok(items.some(i => i.type === 'error'));
+  it('yields delta(start+delta+done) for tool_call', () => {
+    const match = getMatch();
+    const ctx = newCtx();
+    // first delta → start
+    const r1 = [...match({ choices:[{ delta:{ tool_calls:[{ index:0, id:'tc1', function:{ name:'cmd', arguments:'{"cmd"' } }] } }] }, ctx)];
+    assert.ok(r1.some(r => r.start && r.tool === 'cmd'));
+    // finish_reason → done with parsed input
+    ctx.tools.get(0).args = '{"command":"ls"}';
+    const r2 = [...match({ choices:[{ finish_reason:'tool_calls', delta:{} }] }, ctx)];
+    assert.strictEqual(r2.length, 1);
+    assert.strictEqual(r2[0].done, true);
+    assert.deepStrictEqual(r2[0].input, { command:'ls' });
   });
 
-  it('respects abort signal', { timeout: 5000 }, async () => {
-    const ac = new AbortController();
-    serverHandler = (req, res) => {
-      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-      res.write(sseEvent({ type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', content: [], model: 'test', usage: { input_tokens: 10, output_tokens: 0 } } }));
-      req.on('close', () => res.end());
-    };
-    const infer = getInfer();
-    setTimeout(() => ac.abort(), 100);
-    const items = await collect(infer(userEvents, { signal: ac.signal }));
-    assert.ok(true, 'completed after abort');
-  });
-
-  it('yields error on malformed tool JSON', async () => {
-    serverHandler = (_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-      const chunks = [];
-      chunks.push(sseEvent({ type: 'message_start', message: { id: 'msg', type: 'message', role: 'assistant', content: [], model: 'test', usage: { input_tokens: 50, output_tokens: 0 } } }));
-      chunks.push(sseEvent({ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'tc', name: 'cmd', input: {} } }));
-      chunks.push(sseEvent({ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{invalid' } }));
-      chunks.push(sseEvent({ type: 'content_block_stop', index: 0 }));
-      chunks.push(sseEvent({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 5 } }));
-      chunks.push(sseEvent({ type: 'message_stop' }));
-      res.end(chunks.join(''));
-    };
-    const infer = getInfer();
-    const items = await collect(infer(userEvents, {}));
-    assert.ok(items.some(i => i.type === 'error' && i.message.includes('JSON')));
-    assert.ok(!items.some(i => i.type === 'action' && i.tool === 'cmd'));
-  });
-
-  it('sends correct request body', async () => {
-    let capturedBody;
-    serverHandler = (_req, res, body) => { capturedBody = JSON.parse(body); res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.end(textResponseSSE('ok')); };
-    const infer = getInfer();
-    await collect(infer(userEvents, { system: [{ type: 'text', text: 'You are helpful' }], tools: [{ name: 'cmd', description: 'run', input_schema: { type: 'object' } }] }));
-    assert.strictEqual(capturedBody.model, 'test-model');
-    assert.ok(capturedBody.messages.length > 0);
-    assert.ok(capturedBody.system);
-    assert.ok(capturedBody.tools);
+  it('accumulates usage from final chunk', () => {
+    const match = getMatch();
+    const ctx = newCtx();
+    [...match({ usage:{ prompt_tokens:100, completion_tokens:50 } }, ctx)];
+    assert.strictEqual(ctx.usage.input_tokens, 100);
+    assert.strictEqual(ctx.usage.output_tokens, 50);
   });
 });

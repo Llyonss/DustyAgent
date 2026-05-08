@@ -11,7 +11,6 @@ function tmpInstance() {
   return dir;
 }
 
-// Mock infer: yields predefined events per call
 function mockInferModule(responses) {
   let callIndex = 0;
   return {
@@ -24,7 +23,6 @@ function mockInferModule(responses) {
 
 function setupLoop(responses) {
   const mock = mockInferModule(responses);
-  // Inject mock into require cache
   const inferPath = require.resolve('../core/infer');
   require.cache[inferPath] = { id: inferPath, filename: inferPath, loaded: true, exports: mock };
   delete require.cache[require.resolve('../core/loop')];
@@ -36,13 +34,31 @@ function teardown() {
   delete require.cache[require.resolve('../core/loop')];
 }
 
+function speakDone(id, output) {
+  return [
+    { type: 'delta', start: true, id, tool: 'speak' },
+    { type: 'delta', done: true, id, tool: 'speak', output },
+  ];
+}
+
+function toolDone(id, name, input) {
+  return [
+    { type: 'delta', start: true, id, tool: name },
+    { type: 'delta', done: true, id, tool: name, input },
+  ];
+}
+
+function response(usage) {
+  return { type: 'response', usage: usage || {} };
+}
+
 describe('loop', () => {
   it('text-only response causes implicit stop after one turn', async () => {
     const dir = tmpInstance();
     writeEvent(path.join(dir, 'events'), { type: 'user', content: 'hi' });
     const loop = setupLoop([[
-      { type: 'action', id: 's1', tool: 'speak', output: 'Hello' },
-      { type: 'usage', usage: { input_tokens: 10, output_tokens: 5 } },
+      ...speakDone('s1', 'Hello'),
+      response({ input_tokens: 10, output_tokens: 5 }),
     ]]);
     const turns = [];
     for await (const turn of loop({ instanceDir: dir, hooks: {} })) turns.push(turn);
@@ -55,8 +71,8 @@ describe('loop', () => {
     writeEvent(path.join(dir, 'events'), { type: 'user', content: 'do it' });
     const tools = [{ name: 'cmd', description: 'run', input_schema: { type: 'object' }, execute: async () => 'done' }];
     const loop = setupLoop([
-      [{ type: 'action', id: 't1', tool: 'cmd', input: { command: 'ls' } }, { type: 'usage', usage: {} }],
-      [{ type: 'action', id: 's1', tool: 'speak', output: 'Done' }, { type: 'usage', usage: {} }],
+      [...toolDone('t1', 'cmd', { command: 'ls' }), response({})],
+      [...speakDone('s1', 'Done'), response({})],
     ]);
     const turns = [];
     for await (const turn of loop({ instanceDir: dir, hooks: { tools: () => tools } })) turns.push(turn);
@@ -71,8 +87,9 @@ describe('loop', () => {
     const mock = {
       infer: async function*(events, opts) {
         capturedSystem = opts.system;
-        yield { type: 'action', id: 's1', tool: 'speak', output: 'ok' };
-        yield { type: 'usage', usage: {} };
+        yield { type: 'delta', start: true, id: 's1', tool: 'speak' };
+        yield { type: 'delta', done: true, id: 's1', tool: 'speak', output: 'ok' };
+        yield { type: 'response', usage: {} };
       },
     };
     const inferPath = require.resolve('../core/infer');
@@ -93,8 +110,9 @@ describe('loop', () => {
     const mock = {
       infer: async function*(events, opts) {
         capturedEvents = events;
-        yield { type: 'action', id: 's1', tool: 'speak', output: 'ok' };
-        yield { type: 'usage', usage: {} };
+        yield { type: 'delta', start: true, id: 's1', tool: 'speak' };
+        yield { type: 'delta', done: true, id: 's1', tool: 'speak', output: 'ok' };
+        yield { type: 'response', usage: {} };
       },
     };
     const inferPath = require.resolve('../core/infer');
@@ -116,7 +134,7 @@ describe('loop', () => {
     const turns = [];
     for await (const turn of loop({ instanceDir: dir, hooks: {} })) turns.push(turn);
     assert.strictEqual(turns.length, 1);
-    assert.ok(turns[0].errors.length > 0);
+    assert.ok(turns[0].response.errors.length > 0);
     teardown();
   });
 
@@ -125,8 +143,8 @@ describe('loop', () => {
     writeEvent(path.join(dir, 'events'), { type: 'user', content: 'hi' });
     const ac = new AbortController();
     const loop = setupLoop([[
-      { type: 'action', id: 's1', tool: 'speak', output: 'ok' },
-      { type: 'usage', usage: {} },
+      ...speakDone('s1', 'ok'),
+      response({}),
     ]]);
     ac.abort();
     const turns = [];
