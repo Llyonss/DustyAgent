@@ -7,7 +7,6 @@
     "web": "node src/web/index.js",
     "novel": "node src/agent/novel/web/index.js",
     "mental": "node src/agent/mental/web/index.js",
-    "mental-v2": "node src/agent/mental/web2/index.js",
     "mental:restart": "src\\agent\\mental\\restart.bat",
     "mental:stop": "src\\agent\\mental\\stop.bat",
     "tunnel": "node src/tunnel.js",

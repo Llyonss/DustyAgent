@@ -10,10 +10,62 @@ import { Content } from './content/index.js';
 import { Chat } from './chat/index.js';
 import { Preset } from './preset.js';
 import { Screenshot } from './screenshot.js';
+import { Usage } from './usage.js';
 
 // 全局工具函数
 window.esc = function(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+
+// —— Markdown 渲染（含 Mermaid） ——
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'base',
+  themeVariables: {
+    primaryColor: '#1a1a24',
+    primaryTextColor: '#c8c8d0',
+    primaryBorderColor: '#2a2a30',
+    lineColor: '#555',
+    secondaryColor: '#121218',
+    tertiaryColor: '#0e0e10',
+    nodeBorder: '#7c6fe0',
+    clusterBkg: '#121218',
+    clusterBorder: '#2a2a30',
+    titleColor: '#e0e0e8',
+    edgeLabelBackground: '#12121a',
+  }
+});
+
+const mdRenderer = new marked.Renderer();
+const origCode = mdRenderer.code.bind(mdRenderer);
+mdRenderer.code = function({ text, lang }) {
+  if (lang === 'mermaid') return `<div class="mermaid">${text}</div>`;
+  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<pre><code class="language-${lang || ''}">${escaped}</code></pre>`;
+};
+marked.setOptions({ renderer: mdRenderer });
+
+// 纯函数：markdown → HTML 字符串
 window.md = function(s) { try { return marked.parse(s || ''); } catch { return '<pre>' + window.esc(s) + '</pre>'; } };
+
+// 写入 DOM：含 mermaid 渲染
+window.mdTo = function(el, s) {
+  el.innerHTML = window.md(s);
+  mermaid.run({ nodes: el.querySelectorAll('.mermaid:not([data-processed])') });
+};
+
+// —— 移动端键盘适配：visualViewport 动态高度 ——
+// 键盘弹出时 visualViewport 缩小，body 高度同步缩小 → 输入框紧贴键盘
+if (window.visualViewport) {
+  const adaptViewport = () => {
+    document.body.style.height = window.visualViewport.height + 'px';
+    // 部分浏览器键盘弹出时会滚动页面，强制归位
+    if (window.visualViewport.offsetTop > 0) {
+      window.scrollTo(0, 0);
+    }
+  };
+  window.visualViewport.addEventListener('resize', adaptViewport);
+  window.visualViewport.addEventListener('scroll', adaptViewport);
+  adaptViewport();
+}
 
 const App = {
   async init() {
@@ -27,6 +79,7 @@ const App = {
     Tree.renderMental(graphData);
 
     Screenshot.init();
+    Usage.init();
     Chat.startPoll();
   }
 };

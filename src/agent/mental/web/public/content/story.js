@@ -48,13 +48,15 @@ export const Story = {
       }
     }
     document.getElementById('storyBody').innerHTML = bodyHtml;
+    mermaid.run({ nodes: document.getElementById('storyBody').querySelectorAll('.mermaid:not([data-processed])') });
 
     const events = await Data.fetchStoryEvents(instance, index);
     if (!events.length) {
       document.getElementById('storyEvents').innerHTML = '<div class="empty" style="padding:12px">无事件记录</div>';
       return;
     }
-    document.getElementById('storyEvents').innerHTML =
-      '<div class="story-events-title">事件记录</div>' + Renderer.render(events, { interactive: false });
+    const eventsEl = document.getElementById('storyEvents');
+    eventsEl.innerHTML = '<div class="story-events-title">事件记录</div>' + Renderer.render(events, { interactive: false });
+    mermaid.run({ nodes: eventsEl.querySelectorAll('.mermaid:not([data-processed])') });
   }
 };

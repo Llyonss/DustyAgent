@@ -411,6 +411,36 @@ app.get('/api/story-events', (req, res) => {
   } catch { res.json([]); }
 });
 
+// --- Delete commit: remove a commit event + its history file ---
+app.delete('/api/commit', (req, res) => {
+  const { instance, index } = req.body;
+  if (!instance || !index || index < 1) return res.status(400).json({ error: 'instance and index required (1-based)' });
+  const { key, eventsDir, instanceDir } = resolve(instance);
+  if (loops.has(key)) return res.status(409).json({ error: 'loop running, stop first' });
+  try {
+    const events = readEvents(eventsDir);
+    // Find all successful commits
+    const commitEvents = [];
+    for (const e of events) {
+      if (e.type === 'action' && e.tool === 'commit' && !e.error) commitEvents.push(e);
+    }
+    if (index > commitEvents.length) return res.status(404).json({ error: 'commit not found' });
+
+    const commit = commitEvents[index - 1];
+    // Delete commit event file
+    const eventPath = path.join(eventsDir, commit._file);
+    if (fs.existsSync(eventPath)) fs.unlinkSync(eventPath);
+
+    // Delete corresponding history file
+    const histDir = path.join(instanceDir, 'history');
+    const histFile = String(index).padStart(3, '0') + '.md';
+    const histPath = path.join(histDir, histFile);
+    if (fs.existsSync(histPath)) fs.unlinkSync(histPath);
+
+    res.json({ ok: true, deleted: 1 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // --- Mental stories: find stories related to a mental across all instances ---
 app.get('/api/mental-stories', (req, res) => {
   const { name } = req.query;
@@ -464,6 +494,22 @@ app.get('/api/screenshot', async (req, res) => {
     res.json({ image: b64, timestamp: Date.now() });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Zenmux Subscription proxy ---
+app.get('/api/zenmux/subscription', async (req, res) => {
+  const apiKey = process.env.ZENMUX_MANAGEMENT_API_KEY;
+  if (!apiKey) return res.json({ available: false, reason: 'not_configured' });
+  try {
+    const baseUrl = process.env.ZENMUX_API_URL || 'https://zenmux.ai/api/v1';
+    const r = await fetch(`${baseUrl}/management/subscription/detail`, {
+      headers: { Authorization: `Bearer ${apiKey}` }
+    });
+    const data = await r.json();
+    res.json({ available: true, ...data });
+  } catch (e) {
+    res.json({ available: true, error: e.message });
   }
 });
 

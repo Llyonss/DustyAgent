@@ -6,34 +6,57 @@ import { Renderer } from '../renderer/index.js';
 
 export const Chat = {
   pollTimer: null,
+  _polling: false,
+  _pollFails: 0,
   lastEventsJson: '',
   isRunning: false,
 
   startPoll() {
     this.stopPoll();
-    this._poll();
-    this.pollTimer = setInterval(() => this._poll(), 200);
+    this._polling = false;
+    this._pollFails = 0;
+    this._scheduleNext();
   },
 
   stopPoll() {
-    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+    if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
+    this._polling = false;
+  },
+
+  _scheduleNext() {
+    this.pollTimer = setTimeout(() => this._poll(), 200);
   },
 
   async _poll() {
+    if (this._polling) return;
+    this._polling = true;
     const inst = localStorage.getItem('mental-instance');
-    if (!inst) return;
+    if (!inst) { this._polling = false; this._scheduleNext(); return; }
     try {
       const data = await Data.pollEvents(inst);
+      this._pollFails = 0;
       this.isRunning = data.running;
       document.getElementById('runningIndicator').classList.toggle('hidden', !data.running);
       document.getElementById('sendBtn').classList.toggle('hidden', data.running);
       document.getElementById('stopBtn').classList.toggle('hidden', !data.running);
       const json = JSON.stringify({ events: data.events, usages: data.usages });
       if (json !== this.lastEventsJson) {
-        this.lastEventsJson = json;
         this._render(data.events, data.usages);
+        this.lastEventsJson = json;
+        this._syncMentalViews(data.events);
       }
-    } catch {}
+    } catch {
+      this._pollFails++;
+      if (this._pollFails >= 15) {
+        this.isRunning = false;
+        document.getElementById('runningIndicator').classList.add('hidden');
+        document.getElementById('sendBtn').classList.remove('hidden');
+        document.getElementById('stopBtn').classList.add('hidden');
+      }
+    } finally {
+      this._polling = false;
+      this._scheduleNext();
+    }
   },
 
   _render(events, usages) {
@@ -41,11 +64,36 @@ export const Chat = {
     const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
 
     window._deleteTurn = (gid) => this._deleteTurn(gid);
+    window._deleteCommit = (index) => this._deleteCommit(index);
     window._retry = () => this.retry();
     window._replyAsk = (goalName, confirmed, idx) => this.replyAsk(goalName, confirmed, idx);
 
     el.innerHTML = Renderer.render(events, { interactive: true, usages: usages || [] });
+    mermaid.run({ nodes: el.querySelectorAll('.mermaid:not([data-processed])') });
     if (wasAtBottom) el.scrollTop = el.scrollHeight;
+  },
+
+  _syncMentalViews(events) {
+    try {
+      const written = new Set();
+      for (const e of events) {
+        if (e.type === 'action' && e.tool === 'mental' && e.input?.name && (e.input.set != null || e.input.delete)) {
+          written.add(e.input.name);
+        }
+      }
+      if (!written.size) return;
+
+      for (const name of written) {
+        delete Data.cache.mental[name];
+      }
+
+      // 动态 import，加载失败不影响聊天面板
+      import('../content/index.js').then(({ Content }) => {
+        if (Content.current && written.has(Content.current)) {
+          Content.select(Content.current);
+        }
+      }).catch(() => {});
+    } catch {} // 任何异常都不影响轮询和渲染
   },
 
   async send() {
@@ -56,7 +104,15 @@ export const Chat = {
     if (!text) return;
     inp.value = '';
     inp.style.height = 'auto';
-    await Data.sendEvent(inst, text);
+    try {
+      await Data.sendEvent(inst, text);
+    } catch {
+      inp.value = text;
+      return;
+    }
+    this._polling = false;
+    this._pollFails = 0;
+    this._poll();
   },
 
   async abort() {
@@ -78,6 +134,14 @@ export const Chat = {
     if (!g || !g._files || !g._files.length) return;
     if (!confirm(`删除此 turn 的 ${g._files.length} 个事件？不可撤销。`)) return;
     await Data.deleteEvents(inst, g._files);
+    this.lastEventsJson = '';
+  },
+
+  async _deleteCommit(index) {
+    const inst = localStorage.getItem('mental-instance');
+    if (!inst) return;
+    if (!confirm(`删除 commit #${index} 及其对应的故事？不可撤销。`)) return;
+    await Data.deleteCommit(inst, index);
     this.lastEventsJson = '';
   },
 

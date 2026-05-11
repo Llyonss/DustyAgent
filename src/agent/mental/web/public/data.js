@@ -30,6 +30,14 @@ async function del(url, body) {
 }
 
 export const Data = {
+  // 简单 GET（不走缓存）
+  async _simpleGet(url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+    return r.json();
+  },
+
+
   // —— 读取 ——
 
   async fetchInstances() {
@@ -129,6 +137,10 @@ export const Data = {
 
   async deleteEvents(instance, files) {
     return del('/api/events', { instance, files });
+  },
+
+  async deleteCommit(instance, index) {
+    return del('/api/commit', { instance, index });
   },
 
   async stopLoop(instance) {

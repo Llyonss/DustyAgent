@@ -33,7 +33,7 @@ export const Content = {
     try {
       const data = await Data.fetchMental(name);
       document.getElementById('contentName').textContent = name;
-      document.getElementById('contentBody').innerHTML = window.md(data.content);
+      window.mdTo(document.getElementById('contentBody'), data.content);
       document.getElementById('contentLinks').innerHTML = renderLinks(data.links);
     } catch {
       document.getElementById('contentName').textContent = name;

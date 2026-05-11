@@ -130,10 +130,15 @@ export const Renderer = {
       if (events[i].type === 'action' && events[i].tool === 'commit' && !events[i].error) commits.push(i);
     }
 
-    let html = '', segStart = 0;
+    let html = '', segStart = 0, commitIndex = 0;
     for (const ci of commits) {
+      commitIndex++;
       html += this._renderSegment(events.slice(segStart, ci), interactive);
-      html += `<div class="msg-commit">┄┄ 🧠 ${window.esc(events[ci].input?.title || 'commit')} ┄┄</div>`;
+      if (interactive) {
+        html += `<div class="msg-commit"><span class="commit-sep">┄┄ 🧠 ${window.esc(events[ci].input?.title || 'commit')} ┄┄</span><button class="commit-delete-btn" onclick="window._deleteCommit(${commitIndex})" title="删除此commit及其故事">×</button></div>`;
+      } else {
+        html += `<div class="msg-commit"><span class="commit-sep">┄┄ 🧠 ${window.esc(events[ci].input?.title || 'commit')} ┄┄</span></div>`;
+      }
       segStart = ci + 1;
     }
     html += this._renderSegment(events.slice(segStart), interactive);
