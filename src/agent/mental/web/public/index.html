@@ -4,16 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
 <title>Mental — 心智模型</title>
+<script>window.TERMINAL_AUTH='ZHVzdHk6ZHVzdHk0ZXZlcg=='</script>
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.css" />
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10/lib/addon-fit.js"></script>
 </head>
 <body>
 
 <div class="mobile-tabs" id="mobileTabs">
   <div class="mobile-tab active" data-tab="chat">💬 对话</div>
   <div class="mobile-tab" data-tab="mental">🧠 心智</div>
+  <div class="mobile-tab" data-tab="terminal">⌨️ 终端</div>
 </div>
 
 <div id="chatPanel">
@@ -39,6 +44,7 @@
       <button class="btn-text" id="btnRestart" title="重启服务">🔄</button>
       <button class="btn-text" id="btnHistory" title="故事">📜 <span class="btn-label">故事</span></button>
       <button class="btn-text" id="btnScreenshot" title="屏幕预览">🖥️ <span class="btn-label">屏幕</span></button>
+      <button class="btn-text" id="btnTerminal" title="终端">⌨️ <span class="btn-label">终端</span></button>
       <span id="runningIndicator" class="hidden">●</span>
     </div>
   </div>
@@ -48,6 +54,19 @@
     <textarea id="chatInput" placeholder="发消息..." rows="1"></textarea>
     <button id="sendBtn">发送</button>
     <button id="stopBtn" class="hidden">停止</button>
+  </div>
+  <div id="terminalPanel">
+    <div class="terminal-header">
+      <span>⌨️ 终端</span>
+      <div class="terminal-actions">
+        <button class="btn-icon btn-small" id="btnTermStop" title="停止当前命令 (Ctrl+C)">⏹</button>
+        <button class="btn-icon btn-small" id="btnTermCopy" title="复制选区">📋</button>
+        <button class="btn-icon btn-small" id="btnTermRestart" title="重开终端">🔄</button>
+      </div>
+      <span class="terminal-status" id="terminalStatus">未连接</span>
+      <button class="btn-icon btn-small" id="btnTermClose" title="关闭终端">✕</button>
+    </div>
+    <div id="terminalContainer"></div>
   </div>
 </div>
 

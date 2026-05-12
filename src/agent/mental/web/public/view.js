@@ -3,7 +3,7 @@
 
 export const View = {
   current: 'graph',      // 'graph' | 'content' | 'story'
-  mobileTab: 'chat',     // 'chat' | 'mental'
+  mobileTab: 'chat',     // 'chat' | 'mental' | 'terminal'
 
   // —— 主区域三视图切换 ——
   showGraph() {
@@ -36,18 +36,29 @@ export const View = {
   switchTab(tab) {
     const chatPanel = document.getElementById('chatPanel');
     const mentalPanel = document.getElementById('mentalPanel');
+    const terminalPanel = document.getElementById('terminalPanel');
     document.querySelectorAll('.mobile-tab').forEach(t =>
       t.classList.toggle('active', t.dataset.tab === tab)
     );
+    // 隐藏所有
+    chatPanel.classList.remove('mobile-hidden');
+    chatPanel.classList.remove('mobile-term');
+    mentalPanel.classList.remove('mobile-show');
+    terminalPanel?.classList.remove('terminal-open');
+    // 显示目标
     if (tab === 'chat') {
-      chatPanel.classList.remove('mobile-hidden');
-      mentalPanel.classList.remove('mobile-show');
-    } else {
+      // chatPanel 默认可见
+    } else if (tab === 'mental') {
       chatPanel.classList.add('mobile-hidden');
       mentalPanel.classList.add('mobile-show');
       setTimeout(() => {
         if (window._graphRender) window._graphRender();
       }, 50);
+    } else if (tab === 'terminal') {
+      // 移动端：显示 chatPanel 但只露出终端
+      chatPanel.classList.add('mobile-term');
+      terminalPanel?.classList.add('terminal-open');
+      if (window._terminalOpen) window._terminalOpen();
     }
     this.closeSidebar();
     this.mobileTab = tab;

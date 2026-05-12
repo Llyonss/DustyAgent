@@ -2,10 +2,13 @@ require('dotenv').config({ path: require('path').join(__dirname, '../../../../.e
 
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 const express = require('express');
+const { WebSocketServer } = require('ws');
 const { readEvents, writeEvent } = require('../../../core/event');
 const { loop } = require('../../../core/loop');
 const createMentalAgent = require('../brain');
+const { handleConnection } = require('./terminal');
 
 
 const mentalRoot = path.join(__dirname, '../../../../mental');
@@ -514,9 +517,48 @@ app.get('/api/zenmux/subscription', async (req, res) => {
 });
 
 let server = null;
+let wss = null;
 if (require.main === module) {
   const PORT = process.env.MENTAL_PORT || 3003;
-  server = app.listen(PORT, '0.0.0.0', () => console.log('Mental Web running at http://0.0.0.0:' + PORT));
+  server = http.createServer(app);
+
+  wss = new WebSocketServer({ noServer: true });
+  server.on('upgrade', (request, socket, head) => {
+    const url = new URL(request.url, 'http://localhost');
+    if (url.pathname === '/api/terminal') {
+      // 复用 Basic Auth 鉴权（WS 升级不经过 Express 中间件）
+      // 优先检查 Authorization header，再fallback到 ?auth= 查询参数
+      let authed = false;
+      const authHeader = request.headers.authorization;
+      if (authHeader && authHeader.startsWith('Basic ')) {
+        const [user, pass] = Buffer.from(authHeader.slice(6), 'base64').toString().split(':');
+        if (user === AUTH_USER && pass === AUTH_PASS) authed = true;
+      }
+      if (!authed) {
+        const token = url.searchParams.get('auth');
+        if (token) {
+          try {
+            const [user, pass] = Buffer.from(token, 'base64').toString().split(':');
+            if (user === AUTH_USER && pass === AUTH_PASS) authed = true;
+          } catch {}
+        }
+      }
+      if (!authed) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+
+  wss.on('connection', handleConnection);
+
+  server.listen(PORT, '0.0.0.0', () => console.log('Mental Web running at http://0.0.0.0:' + PORT));
 }
 
 module.exports = { app, loops, get server() { return server; } };

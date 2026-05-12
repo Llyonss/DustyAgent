@@ -395,6 +395,24 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0e0e10;color:#c8c8d
 .mobile-tabs{display:none}
 .mental-mobile-bar{display:none}
 
+/* ── 终端面板（在 chatPanel 内） ── */
+#terminalPanel{display:none;flex-direction:column;background:#0e0e10;flex-shrink:0;border-top:1px solid #2a2a30;min-height:0}
+#terminalPanel.terminal-open{display:flex;height:40%}
+.terminal-header{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;border-bottom:1px solid #2a2a30;background:#121216;flex-shrink:0;font-size:12px;color:#c8c8d0;gap:4px}
+.terminal-header .btn-small{width:22px;height:22px;font-size:11px}
+.terminal-actions{display:flex;gap:2px;flex:1;justify-content:center}
+.terminal-status{font-size:10px;color:#888;min-width:40px;text-align:right}
+#terminalContainer{flex:1;overflow:hidden;padding:2px}
+#terminalContainer .xterm{height:100%;padding:2px}
+/* 让 xterm viewport 完全控制触摸——不加 touch-action，xterm 内部已设 none */
+
+/* 移动端 terminal tab：chatPanel 只显示终端 */
+@media(max-width:768px){
+  #chatPanel.mobile-term>:not(#terminalPanel){display:none!important}
+  #chatPanel.mobile-term>#terminalPanel{display:flex!important;flex:1;height:auto}
+  #chatPanel.mobile-term>#terminalPanel.terminal-open{height:auto}
+}
+
 /* ── Mobile ── */
 @media(max-width:768px){
   body{flex-direction:column}

@@ -11,6 +11,7 @@ import { Chat } from './chat/index.js';
 import { Preset } from './preset.js';
 import { Screenshot } from './screenshot.js';
 import { Usage } from './usage.js';
+import { Terminal } from './terminal.js';
 
 // 全局工具函数
 window.esc = function(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
@@ -73,6 +74,17 @@ const App = {
 
     await Instance.init();
     await Preset.init();
+
+    // 终端初始化
+    Terminal.init(document.getElementById('terminalContainer'));
+    window._terminalOpen = () => Terminal.open();
+
+    // visualViewport 变化时 refit 终端
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => {
+        setTimeout(() => Terminal.refit(), 100);
+      });
+    }
 
     const graphData = await Data.fetchGraph();
     Graph.render(graphData);
@@ -140,6 +152,28 @@ function bindEvents() {
   });
 
   document.getElementById('btnStoryBack').addEventListener('click', () => Content.showGraph());
+
+  // 桌面端终端切换
+  document.getElementById('btnTerminal')?.addEventListener('click', () => {
+    const panel = document.getElementById('terminalPanel');
+    if (!panel) return;
+    const isOpen = panel.classList.toggle('terminal-open');
+    if (isOpen) {
+      Terminal.open();
+      setTimeout(() => Terminal.refit(), 100);
+    }
+  });
+  document.getElementById('btnTermClose')?.addEventListener('click', () => {
+    const panel = document.getElementById('terminalPanel');
+    if (panel) panel.classList.remove('terminal-open');
+    // 移动端切回对话
+    if (View.mobileTab === 'terminal') View.switchTab('chat');
+  });
+
+  // 终端控制按钮
+  document.getElementById('btnTermStop')?.addEventListener('click', () => Terminal.stop());
+  document.getElementById('btnTermCopy')?.addEventListener('click', () => Terminal.copy());
+  document.getElementById('btnTermRestart')?.addEventListener('click', () => Terminal.restart());
 }
 
 App.init();
