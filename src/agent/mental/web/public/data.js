@@ -143,6 +143,18 @@ export const Data = {
     return del('/api/commit', { instance, index });
   },
 
+  async createBranch(instance, branchName, at) {
+    return post('/api/branch', { instance, branchName, at });
+  },
+
+  async fetchBranches(instance) {
+    return get('/api/branches?instance=' + encodeURIComponent(instance));
+  },
+
+  async deleteBranch(instance, branchName) {
+    return del('/api/branch', { instance, branchName });
+  },
+
   async stopLoop(instance) {
     return del('/api/loop?instance=' + encodeURIComponent(instance));
   },

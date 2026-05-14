@@ -58,7 +58,7 @@ function execute(input, ctrl, eventsDir) {
     if (!input.requirement) {
       throw new Error('start 时必须传 requirement（任务目标与要求）。');
     }
-    const events = readEvents(eventsDir);
+    const events = readEvents(path.dirname(eventsDir));
     // 排除最后一条事件——那是当前正在执行的 task 事件本身（action.js 在调用 execute 前已写入）
     const priorEvents = events.slice(0, -1);
     const { unclosed } = scanUnclosed(priorEvents);
@@ -74,7 +74,7 @@ function execute(input, ctrl, eventsDir) {
     if (!input.conclusion && !input.result) {
       throw new Error('done 时必须传 conclusion（结案陈词）。');
     }
-    const events = readEvents(eventsDir);
+    const events = readEvents(path.dirname(eventsDir));
     // 排除最后一条事件——那是当前正在执行的 task 事件本身（action.js 在调用 execute 前已写入）
     const priorEvents = events.slice(0, -1);
     const { unclosed, lastStart } = scanUnclosed(priorEvents);

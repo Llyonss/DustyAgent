@@ -153,6 +153,12 @@ function bindEvents() {
 
   document.getElementById('btnStoryBack').addEventListener('click', () => Content.showGraph());
 
+  // 分支树弹窗关闭
+  document.getElementById('btnBranchTreeClose')?.addEventListener('click', () => Chat.closeBranchTree());
+  document.getElementById('branchTreeModal')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) Chat.closeBranchTree();
+  });
+
   // 桌面端终端切换
   document.getElementById('btnTerminal')?.addEventListener('click', () => {
     const panel = document.getElementById('terminalPanel');

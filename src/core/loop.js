@@ -22,7 +22,7 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
   while (running) {
     if (signal && signal.aborted) break;
 
-    const events = readEvents(eventsDir);
+    const events = readEvents(instanceDir);
     const filtered = hooks.events ? await hooks.events(events) : events;
     ctrl.events = filtered;
     const system = hooks.system ? hooks.system() : undefined;

@@ -60,8 +60,8 @@ app.post('/api/instances', (req, res) => {
 });
 
 app.get('/api/events', (req, res) => {
-  const { key, eventsDir } = resolve(req.query.instance);
-  res.json({ events: readEvents(eventsDir), running: loops.has(key) });
+  const { key, instanceDir } = resolve(req.query.instance);
+  res.json({ events: readEvents(instanceDir), running: loops.has(key) });
 });
 
 app.post('/api/events', async (req, res) => {
@@ -72,7 +72,7 @@ app.post('/api/events', async (req, res) => {
 
   // On retry, remove trailing error events so LLM gets a clean context
   if (retry) {
-    const events = readEvents(eventsDir);
+    const events = readEvents(instanceDir);
     for (let i = events.length - 1; i >= 0; i--) {
       if (events[i].type !== 'error') break;
       fs.unlinkSync(path.join(eventsDir, events[i]._file));

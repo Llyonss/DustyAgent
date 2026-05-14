@@ -50,9 +50,9 @@ app.post('/api/novels', (req, res) => {
 
 // --- Events ---
 app.get('/api/events', (req, res) => {
-  const { key, eventsDir } = resolve(req.query.novel);
+  const { key, instanceDir } = resolve(req.query.novel);
   try {
-    res.json({ events: readEvents(eventsDir), running: loops.has(key) });
+    res.json({ events: readEvents(instanceDir), running: loops.has(key) });
   } catch { res.json({ events: [], running: false }); }
 });
 
@@ -62,7 +62,7 @@ app.post('/api/events', async (req, res) => {
   ensureDirs(instanceDir);
 
   if (retry) {
-    const events = readEvents(eventsDir);
+    const events = readEvents(instanceDir);
     for (let i = events.length - 1; i >= 0; i--) {
       if (events[i].type !== 'error') break;
       fs.unlinkSync(path.join(eventsDir, events[i]._file));

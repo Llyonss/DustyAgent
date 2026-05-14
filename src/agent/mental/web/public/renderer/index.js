@@ -97,7 +97,7 @@ const TaskTree = {
 
   getFoldState(taskId) {
     if (taskId in this.foldState) return this.foldState[taskId] === 'closed';
-    return true; // default: closed tasks fold
+    return true;
   },
 
   setFoldState(taskId, closed) {
@@ -112,6 +112,9 @@ export const Renderer = {
   _turnRefs: {},
   _eventsRef: null,
   expandedTools: new Set(),
+  // 分支渲染状态
+  _forkPointMap: {},
+  _activeInstance: '',
 
   render(events, options = {}) {
     this._toolUid = 0;
@@ -119,10 +122,16 @@ export const Renderer = {
     this._turnGid = 0;
     this._turnRefs = {};
     this._eventsRef = events;
+    this._activeInstance = options.instance || '';
     TaskTree._taskNameCount = {};
 
     const interactive = options.interactive !== false;
     this._usages = options.usages || [];
+
+    // 构建分叉点映射：事件文件名 → 分支信息
+    this._forkPointMap = {};
+    const rootInst = (options.instance || '').split('/')[0];
+    this._flattenBranches(options.branches || [], rootInst || '');
 
     // 按 commit 切段
     const commits = [];
@@ -143,6 +152,18 @@ export const Renderer = {
     }
     html += this._renderSegment(events.slice(segStart), interactive);
     return html;
+  },
+
+  _flattenBranches(branches, prefix) {
+    if (!Array.isArray(branches)) return;
+    for (const b of branches) {
+      const key = prefix ? `${prefix}/${b.name}` : b.name;
+      if (!this._forkPointMap[b.at]) this._forkPointMap[b.at] = [];
+      this._forkPointMap[b.at].push({ name: b.name, key, children: b.children || [] });
+      if (b.children && b.children.length) {
+        this._flattenBranches(b.children, key);
+      }
+    }
   },
 
   _renderSegment(events, interactive) {
@@ -173,7 +194,6 @@ export const Renderer = {
     const unclosedBadge = !task.closed ? ' <span class="task-unclosed">⏳ 进行中</span>' : '';
     const reqHtml = task.requirement && !task.result ? `<span class="task-req">· ${window.esc(task.requirement)}</span>` : '';
 
-    // Count turns
     let turns = 0;
     const countTurns = (n) => { if (n.type !== 'task') { turns++; return; } for (const c of n.children) countTurns(c); };
     countTurns(task);
@@ -201,12 +221,43 @@ export const Renderer = {
       ? `<span class="turn-cost">${usage.cost.toFixed(4)}</span>`
       : '';
 
+    // 检查该 turn 是否是分叉点
+    let forkBranches = [];
+    let forkFiles = [];
+    for (const f of g._files) {
+      if (this._forkPointMap[f]) {
+        forkBranches = this._forkPointMap[f];
+        forkFiles.push(f);
+      }
+    }
+    // 去重
+    const seen = new Set();
+    forkBranches = forkBranches.filter(b => { if (seen.has(b.key)) return false; seen.add(b.key); return true; });
+
     let h = `<div class="turn-block">`;
     if (interactive) {
-      h += `<div class="turn-header"><span class="turn-num">Turn ${num}</span>${costHtml}<button class="turn-delete-btn" onclick="window._deleteTurn(${gid})" title="删除此turn所有事件">×</button></div>`;
+      h += `<div class="turn-header">`;
+      h += `<span class="turn-num">Turn ${num}</span>${costHtml}`;
+      // 分叉按钮始终显示
+      h += `<button class="fork-btn" onclick="window._forkBranch(${gid})" title="从此处分叉新分支">⑂</button>`;
+      h += `<button class="turn-delete-btn" onclick="window._deleteTurn(${gid})" title="删除此turn所有事件">×</button>`;
+      h += `</div>`;
     } else {
       h += `<div class="turn-header"><span class="turn-num">Turn ${num}</span>${costHtml}</div>`;
     }
+
+    // 分叉点：渲染分支条
+    if (forkBranches.length > 0) {
+      h += `<div class="branch-bar">`;
+      h += `<span class="branch-bar-label">▐</span>`;
+      for (const b of forkBranches) {
+        const isActive = this._activeInstance && (this._activeInstance.endsWith('/' + b.key) || this._activeInstance === b.key);
+        h += `<span class="branch-tag${isActive ? ' active' : ''}" onclick="window._switchBranch('${window.esc(b.key)}')">${window.esc(b.name)}</span>`;
+      }
+      h += `<span class="branch-tag branch-tag-new" onclick="window._forkBranch(${gid})">+ 新建</span>`;
+      h += `</div>`;
+    }
+
     for (const e of g.events) {
       h += this._renderEvent(e, interactive);
     }
@@ -224,7 +275,6 @@ export const Renderer = {
     }
     if (e.type !== 'action') return '';
 
-    // task start/done
     if (e.tool === 'task' && !e.error) {
       if (e.input?.start) {
         return `<div class="msg-task-start"><div class="task-head"><span class="task-badge task-badge-start">▶ START</span><span class="task-label">${window.esc(e.input.start)}</span></div>${e.input.requirement ? `<div class="task-detail">${window.esc(e.input.requirement)}</div>` : ''}</div>`;
@@ -238,7 +288,6 @@ export const Renderer = {
     if (e.tool === 'speak') return `<div class="msg-ai">${window.md(typeof e.output === 'string' ? e.output : '')}</div>`;
     if (e.tool === 'think') return `<div class="msg-think"><div class="think-label">💭 思考</div>${window.md(e.input?.content || '')}</div>`;
 
-    // goal ask
     if (e.tool === 'goal' && e.input?.ask && interactive) {
       const idx = this._eventsRef ? this._eventsRef.indexOf(e) : -1;
       const replied = idx >= 0 && this._eventsRef.slice(idx + 1).some(ev => ev.type === 'user');
@@ -248,7 +297,6 @@ export const Renderer = {
       return `<div class="msg-ask-card"><div class="ask-goal">🎯 ${window.esc(e.input.name)}</div><div class="ask-question">${window.md(e.input.ask)}</div><textarea class="ask-input" id="askInput_${idx}" placeholder="输入反馈（可选）..."></textarea><div class="ask-actions"><button class="ask-confirm" onclick="window._replyAsk('${window.esc(e.input.name || '').replace(/'/g, "\\'")}',true,${idx})">✅ 确认</button><button class="ask-deny" onclick="window._replyAsk('${window.esc(e.input.name || '').replace(/'/g, "\\'")}',false,${idx})">❌ 否认</button></div></div>`;
     }
 
-    // generic tool
     const uid = 't' + (this._toolUid++);
     const open = this.expandedTools.has(uid);
     const detail = (e.input ? JSON.stringify(e.input, null, 2) : '') +
@@ -287,6 +335,7 @@ function toolSummary(e) {
   return `<span class="tool-icon">${icon}</span> ${summary}`;
 }
 
+// 全局函数
 window._toggleTool = (uid) => {
   const el = document.getElementById(uid);
   if (!el) return;
@@ -311,4 +360,19 @@ window._toggleTask = (hdr) => {
     hdr.querySelector('.task-arrow').textContent = '▶';
     TaskTree.setFoldState(taskId, true);
   }
+};
+
+// 分支操作
+window._forkBranch = (gid) => {
+  const g = Renderer._turnRefs[gid];
+  if (!g || !g._files || !g._files.length) return;
+  const name = prompt('分支名:');
+  if (!name) return;
+  // 找到该 turn 中第一个有 _file 的事件作为锚点
+  const at = g._files[g._files.length - 1]; // 使用 turn 最后一个事件作为锚点
+  if (window._doForkBranch) window._doForkBranch(name, at);
+};
+
+window._switchBranch = (key) => {
+  if (window._doSwitchBranch) window._doSwitchBranch(key);
 };

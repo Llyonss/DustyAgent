@@ -8,7 +8,7 @@ const { readEvents } = require('../core/event');
 
 function tmpDir() {
   const dir = path.join(os.tmpdir(), 'dusty4-stream-' + Date.now());
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(path.join(dir, 'events'), { recursive: true });
   return dir;
 }
 
@@ -47,7 +47,7 @@ test('streaming speak: intermediate reads see partial text', async () => {
     }
   }, 10); // poll every 10ms to catch changes
 
-  await run(fakeStream(chunks, 50), dir, ctrl, [], null);
+  await run(fakeStream(chunks, 50), path.join(dir, 'events'), ctrl, [], null);
   // Wait a bit for final poll
   await new Promise(r => setTimeout(r, 30));
   clearInterval(pollInterval);
@@ -95,7 +95,7 @@ test('streaming tool: intermediate reads see input being built', async () => {
     }
   }, 10);
 
-  await run(fakeStream(chunks, 50), dir, ctrl, tools, null);
+  await run(fakeStream(chunks, 50), path.join(dir, 'events'), ctrl, tools, null);
   await new Promise(r => setTimeout(r, 30));
   clearInterval(pollInterval);
 

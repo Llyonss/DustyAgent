@@ -16,44 +16,40 @@ afterEach(() => {
 });
 
 describe('readEvents', () => {
-  it('returns empty array when directory does not exist', () => {
+  it('returns empty array when events dir does not exist', () => {
     const result = readEvents(path.join(tmpDir, 'nonexistent'));
     assert.deepStrictEqual(result, []);
   });
 
-  it('returns empty array when directory is empty', () => {
-    const eventsDir = path.join(tmpDir, 'events');
-    fs.mkdirSync(eventsDir);
-    const result = readEvents(eventsDir);
+  it('returns empty array when events dir is empty', () => {
+    fs.mkdirSync(path.join(tmpDir, 'events'));
+    const result = readEvents(tmpDir);
     assert.deepStrictEqual(result, []);
   });
 
   it('ignores non-event files', () => {
-    const eventsDir = path.join(tmpDir, 'events');
-    fs.mkdirSync(eventsDir);
-    fs.writeFileSync(path.join(eventsDir, 'readme.txt'), 'hello');
-    fs.writeFileSync(path.join(eventsDir, 'event.123.0.json'), JSON.stringify({ type: 'user', content: 'hi' }));
-    const result = readEvents(eventsDir);
+    fs.mkdirSync(path.join(tmpDir, 'events'));
+    fs.writeFileSync(path.join(tmpDir, 'events', 'readme.txt'), 'hello');
+    fs.writeFileSync(path.join(tmpDir, 'events', 'event.123.0.json'), JSON.stringify({ type: 'user', content: 'hi' }));
+    const result = readEvents(tmpDir);
     assert.strictEqual(result.length, 1);
     assert.strictEqual(result[0].type, 'user');
   });
 
   it('reads and sorts events by filename', () => {
-    const eventsDir = path.join(tmpDir, 'events');
-    fs.mkdirSync(eventsDir);
-    fs.writeFileSync(path.join(eventsDir, 'event.200.0.json'), JSON.stringify({ type: 'user', content: 'second' }));
-    fs.writeFileSync(path.join(eventsDir, 'event.100.0.json'), JSON.stringify({ type: 'user', content: 'first' }));
-    const result = readEvents(eventsDir);
+    fs.mkdirSync(path.join(tmpDir, 'events'));
+    fs.writeFileSync(path.join(tmpDir, 'events', 'event.200.0.json'), JSON.stringify({ type: 'user', content: 'second' }));
+    fs.writeFileSync(path.join(tmpDir, 'events', 'event.100.0.json'), JSON.stringify({ type: 'user', content: 'first' }));
+    const result = readEvents(tmpDir);
     assert.strictEqual(result.length, 2);
     assert.strictEqual(result[0].content, 'first');
     assert.strictEqual(result[1].content, 'second');
   });
 
   it('attaches _file property to each event', () => {
-    const eventsDir = path.join(tmpDir, 'events');
-    fs.mkdirSync(eventsDir);
-    fs.writeFileSync(path.join(eventsDir, 'event.100.0.json'), JSON.stringify({ type: 'user', content: 'hi' }));
-    const result = readEvents(eventsDir);
+    fs.mkdirSync(path.join(tmpDir, 'events'));
+    fs.writeFileSync(path.join(tmpDir, 'events', 'event.100.0.json'), JSON.stringify({ type: 'user', content: 'hi' }));
+    const result = readEvents(tmpDir);
     assert.strictEqual(result[0]._file, 'event.100.0.json');
   });
 });
@@ -80,13 +76,11 @@ describe('writeEvent', () => {
 
   it('deduplicates filenames within same millisecond using sub counter', () => {
     const eventsDir = path.join(tmpDir, 'events');
-    // Write multiple events rapidly — they may land in same ms
     for (let i = 0; i < 5; i++) {
       writeEvent(eventsDir, { type: 'user', content: `msg${i}` });
     }
     const files = fs.readdirSync(eventsDir).sort();
     assert.strictEqual(files.length, 5);
-    // All filenames must be unique
     const unique = new Set(files);
     assert.strictEqual(unique.size, 5);
   });
@@ -106,7 +100,7 @@ describe('writeEvent', () => {
     const eventsDir = path.join(tmpDir, 'events');
     writeEvent(eventsDir, { type: 'user', content: 'first' });
     writeEvent(eventsDir, { type: 'user', content: 'second' });
-    const events = readEvents(eventsDir);
+    const events = readEvents(tmpDir);
     assert.strictEqual(events.length, 2);
     assert.strictEqual(events[0].content, 'first');
     assert.strictEqual(events[1].content, 'second');

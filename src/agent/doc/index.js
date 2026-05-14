@@ -46,7 +46,7 @@ module.exports = function(instanceDir) {
       let filtered = lastCommit >= 0 ? events.slice(lastCommit + 1) : events;
 
       // Prepend context
-      const allEvents = readEvents(eventsDir);
+      const allEvents = readEvents(instanceDir);
       const commits = allEvents.filter(e => e.type === 'action' && e.tool === 'commit' && !e.error);
       const doc = readDoc();
       const ctxEvents = [];

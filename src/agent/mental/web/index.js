@@ -22,12 +22,21 @@ function ensureDirs() {
 }
 ensureDirs();
 
+// 支持路径格式: "根实例" 或 "根实例/分支1/分支2..."
 function resolve(name) {
-  const safe = (name || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim();
-  const key = safe && safe !== '.' && safe !== '..' ? safe : 'default';
-  const instanceDir = path.join(instancesDir, key);
-  const eventsDir = path.join(instanceDir, 'events');
-  return { key, instanceDir, eventsDir };
+  const parts = (name || '').split('/').filter(Boolean);
+  if (!parts.length) parts.push('default');
+  const sanitize = (s) => {
+    const safe = (s || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim();
+    return safe && safe !== '.' && safe !== '..' ? safe : 'default';
+  };
+  let key = sanitize(parts[0]);
+  let instanceDir = path.join(instancesDir, key);
+  for (let i = 1; i < parts.length; i++) {
+    key += '/' + parts[i];
+    instanceDir = path.join(instanceDir, 'events', sanitize(parts[i]));
+  }
+  return { key, instanceDir, eventsDir: path.join(instanceDir, 'events') };
 }
 
 const DEFAULT_SYSTEM_PATH = path.join(__dirname, '../brain/system-default.md');
@@ -111,13 +120,13 @@ app.get('/api/events', (req, res) => {
   try {
     let usages = [];
     try { usages = JSON.parse(fs.readFileSync(path.join(instanceDir, 'usage.json'), 'utf-8')); } catch {}
-    res.json({ events: readEvents(eventsDir), running: loops.has(key), usages });
+    res.json({ events: readEvents(instanceDir), running: loops.has(key), usages });
   } catch { res.json({ events: [], running: false, usages: [] }); }
 });
 
 app.delete('/api/events', (req, res) => {
   const { instance, file, mode, files } = req.body;
-  const { key, eventsDir } = resolve(instance);
+  const { key, eventsDir, instanceDir } = resolve(instance);
   // 运行中禁止删除
   if (loops.has(key)) return res.status(409).json({ error: 'loop running, stop first' });
   try {
@@ -130,7 +139,7 @@ app.delete('/api/events', (req, res) => {
       return res.json({ ok: true, deleted });
     }
     if (!file || !mode) return res.status(400).json({ error: 'file and mode required, or files array' });
-    const events = readEvents(eventsDir);
+    const events = readEvents(instanceDir);
     const idx = events.findIndex(e => e._file === file);
     if (idx === -1) return res.status(404).json({ error: 'event not found' });
     const toDelete = mode === 'after' ? events.slice(idx) : [events[idx]];
@@ -169,7 +178,7 @@ app.post('/api/events', async (req, res) => {
   ensureInstance(instanceDir);
 
   if (retry) {
-    const events = readEvents(eventsDir);
+    const events = readEvents(instanceDir);
     for (let i = events.length - 1; i >= 0; i--) {
       if (events[i].type !== 'error') break;
       fs.unlinkSync(path.join(eventsDir, events[i]._file));
@@ -395,11 +404,11 @@ app.get('/api/history', (req, res) => {
 
 // --- Story events: get events for a specific commit interval ---
 app.get('/api/story-events', (req, res) => {
-  const { eventsDir } = resolve(req.query.instance);
+  const { instanceDir } = resolve(req.query.instance);
   const index = parseInt(req.query.index); // 1-based
   if (!index || index < 1) return res.status(400).json({ error: 'index required (1-based)' });
   try {
-    const events = readEvents(eventsDir);
+    const events = readEvents(instanceDir);
     // Find all successful commits
     const commitIndices = [];
     for (let i = 0; i < events.length; i++) {
@@ -421,7 +430,7 @@ app.delete('/api/commit', (req, res) => {
   const { key, eventsDir, instanceDir } = resolve(instance);
   if (loops.has(key)) return res.status(409).json({ error: 'loop running, stop first' });
   try {
-    const events = readEvents(eventsDir);
+    const events = readEvents(instanceDir);
     // Find all successful commits
     const commitEvents = [];
     for (const e of events) {
@@ -455,7 +464,7 @@ app.get('/api/mental-stories', (req, res) => {
     for (const inst of instances) {
       const evDir = path.join(instancesDir, inst, 'events');
       let events;
-      try { events = readEvents(evDir); } catch { continue; }
+      try { events = readEvents(path.join(instancesDir, inst)); } catch { continue; }
       let segStart = 0, commitNum = 0;
       for (let i = 0; i < events.length; i++) {
         const e = events[i];
@@ -498,6 +507,66 @@ app.get('/api/screenshot', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// --- Branch fork ---
+app.post('/api/branch', (req, res) => {
+  const { instance, branchName, at } = req.body;
+  if (!instance || !branchName || !at) return res.status(400).json({ error: 'instance, branchName, at required' });
+  const { instanceDir } = resolve(instance);
+  const safeName = (branchName || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim();
+  if (!safeName || safeName === '.' || safeName === '..') return res.status(400).json({ error: 'invalid branchName' });
+  const branchDir = path.join(instanceDir, 'events', safeName);
+  if (fs.existsSync(branchDir)) return res.status(409).json({ error: 'branch already exists' });
+  fs.mkdirSync(path.join(branchDir, 'events'), { recursive: true });
+  fs.mkdirSync(path.join(branchDir, 'history'), { recursive: true });
+  fs.writeFileSync(path.join(branchDir, '.dusty.json'), JSON.stringify({
+    events: 'events/',
+    fork: { instance: '../..', at }
+  }, null, 2));
+  res.json({ ok: true, branchKey: `${instance}/${safeName}` });
+});
+
+// --- Branch delete ---
+app.delete('/api/branch', async (req, res) => {
+  const { instance, branchName } = req.body;
+  if (!instance || !branchName) return res.status(400).json({ error: 'instance, branchName required' });
+  const safeName = (branchName || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim();
+  if (!safeName || safeName === '.' || safeName === '..') return res.status(400).json({ error: 'invalid branchName' });
+  const { key, instanceDir } = resolve(instance);
+  const branchDir = path.join(instanceDir, 'events', safeName);
+  if (!fs.existsSync(branchDir)) return res.status(404).json({ error: 'branch not found' });
+  // 停止该分支的 loop（如有）
+  const branchKey = `${instance}/${safeName}`;
+  const entry = loops.get(branchKey);
+  if (entry) { entry.controller.abort(); await entry.done; }
+  // 递归删除分支目录
+  try { fs.rmSync(branchDir, { recursive: true, force: true }); } catch (e) { return res.status(500).json({ error: e.message }); }
+  res.json({ ok: true });
+});
+
+// --- Branches tree ---
+app.get('/api/branches', (req, res) => {
+  const { instanceDir } = resolve(req.query.instance || '');
+  function scan(dir) {
+    const branches = [];
+    try {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const subDir = path.join(dir, entry.name);
+        let config;
+        try { config = JSON.parse(fs.readFileSync(path.join(subDir, '.dusty.json'), 'utf-8')); } catch { continue; }
+        if (!config.fork) continue;
+        branches.push({
+          name: entry.name,
+          at: config.fork.at,
+          children: scan(path.join(subDir, 'events'))
+        });
+      }
+    } catch {}
+    return branches;
+  }
+  res.json(scan(path.join(instanceDir, 'events')));
 });
 
 // --- Zenmux Subscription proxy ---

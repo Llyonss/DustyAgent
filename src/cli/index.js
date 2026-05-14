@@ -53,7 +53,7 @@ async function main() {
   console.log('\nDusty4 CLI — instance: ' + instanceName + ' [' + (isDoc ? 'doc' : 'agent') + ']');
   console.log('Type a message or /quit to exit\n');
 
-  const existing = readEvents(eventsDir);
+  const existing = readEvents(instanceDir);
   for (const e of existing) {
     displayEvent(e);
   }
@@ -61,7 +61,7 @@ async function main() {
   let lastCount = existing.length;
 
   const watcher = setInterval(() => {
-    const events = readEvents(eventsDir);
+    const events = readEvents(instanceDir);
     if (events.length > lastCount) {
       for (let i = lastCount; i < events.length; i++) {
         displayEvent(events[i]);

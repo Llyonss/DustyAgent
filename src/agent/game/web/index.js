@@ -118,7 +118,7 @@ app.put('/api/upload', (req, res) => {
 // --- Chat ---
 app.get('/api/events', (req, res) => {
   try {
-    res.json({ events: readEvents(eventsDir()), running: !!agentLoop });
+    res.json({ events: readEvents(workspaceRoot), running: !!agentLoop });
   } catch { res.json({ events: [], running: false }); }
 });
 

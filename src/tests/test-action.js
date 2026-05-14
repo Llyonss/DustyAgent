@@ -7,7 +7,9 @@ const { run } = require('../core/action');
 const { readEvents } = require('../core/event');
 
 function tmpDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'action-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'action-test-'));
+  fs.mkdirSync(path.join(dir, 'events'));
+  return dir;
 }
 
 async function* gen(events) { for (const e of events) yield e; }
@@ -23,7 +25,7 @@ describe('run', () => {
       { type: 'delta', id: 's1', tool: 'speak', content: 'world' },
       { type: 'delta', done: true, id: 's1', tool: 'speak', output: 'Hello world' },
       { type: 'response', usage: { input_tokens: 10, output_tokens: 5 } },
-    ]), dir, { ...noopCtrl }, [], undefined);
+    ]), path.join(dir, 'events'), { ...noopCtrl }, [], undefined);
     assert.strictEqual(output.length, 1);
     assert.strictEqual(output[0].type, 'text_block');
     assert.strictEqual(output[0].text, 'Hello world');
@@ -41,7 +43,7 @@ describe('run', () => {
       { type: 'delta', start: true, id: 's1', tool: 'speak' },
       { type: 'delta', done: true, id: 's1', tool: 'speak', output: 'Hi' },
       { type: 'response', usage: {} },
-    ]), dir, ctrl, [], undefined);
+    ]), path.join(dir, 'events'), ctrl, [], undefined);
     assert.ok(stopped);
   });
 
@@ -54,7 +56,7 @@ describe('run', () => {
       { type: 'delta', start: true, id: 't1', tool: 'cmd' },
       { type: 'delta', done: true, id: 't1', tool: 'cmd', input: { command: 'ls' } },
       { type: 'response', usage: {} },
-    ]), dir, ctrl, tools, undefined);
+    ]), path.join(dir, 'events'), ctrl, tools, undefined);
     assert.ok(!stopped);
   });
 
@@ -66,7 +68,7 @@ describe('run', () => {
       { type: 'delta', id: 't1', tool: 'cmd', content: '{"command":"ls"}' },
       { type: 'delta', done: true, id: 't1', tool: 'cmd', input: { command: 'ls' } },
       { type: 'response', usage: {} },
-    ]), dir, { ...noopCtrl }, tools, undefined);
+    ]), path.join(dir, 'events'), { ...noopCtrl }, tools, undefined);
     assert.strictEqual(output[0].type, 'tool_use');
     assert.strictEqual(output[0].name, 'cmd');
     const events = readEvents(dir);
@@ -83,7 +85,7 @@ describe('run', () => {
       { type: 'delta', start: true, id: 't1', tool: 'cmd' },
       { type: 'delta', done: true, id: 't1', tool: 'cmd', input: {} },
       { type: 'response', usage: {} },
-    ]), dir, { ...noopCtrl }, tools, undefined);
+    ]), path.join(dir, 'events'), { ...noopCtrl }, tools, undefined);
     const events = readEvents(dir);
     const action = events.find(e => e.tool === 'cmd');
     assert.ok(action.error);
@@ -96,7 +98,7 @@ describe('run', () => {
     const ctrl = { ...noopCtrl, stop: () => { stopped = true; } };
     const { errors } = await run(gen([
       { type: 'error', message: 'API failed' },
-    ]), dir, ctrl, [], undefined);
+    ]), path.join(dir, 'events'), ctrl, [], undefined);
     assert.ok(stopped);
     assert.strictEqual(errors.length, 1);
     const events = readEvents(dir);
@@ -112,7 +114,7 @@ describe('run', () => {
       { type: 'delta', start: true, id: 's1', tool: 'speak' },
       { type: 'delta', done: true, id: 's1', tool: 'speak', output: 'Hello' },
       { type: 'response', usage: {} },
-    ]), dir, { ...noopCtrl }, [], undefined);
+    ]), path.join(dir, 'events'), { ...noopCtrl }, [], undefined);
     const events = readEvents(dir);
     const thinking = events.find(e => e.tool === 'thinking');
     assert.ok(thinking);
@@ -125,7 +127,7 @@ describe('run', () => {
     const ctrl = { ...noopCtrl, stop: () => { stopped = true; } };
     const { errors } = await run(gen([
       { type: 'response', usage: { input_tokens: 100, output_tokens: 1 } },
-    ]), dir, ctrl, [], undefined);
+    ]), path.join(dir, 'events'), ctrl, [], undefined);
     assert.ok(stopped);
     assert.ok(errors.length > 0);
   });

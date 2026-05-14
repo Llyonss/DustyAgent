@@ -49,6 +49,7 @@
     </div>
   </div>
   <div id="historyPanel" class="hidden"></div>
+  <div id="branchOverview" class="branch-overview hidden"></div>
   <div id="chatMessages" class="chat-messages"></div>
   <div class="chat-input">
     <textarea id="chatInput" placeholder="发消息..." rows="1"></textarea>
@@ -158,6 +159,17 @@
         <div id="storyEvents"></div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- 分支树弹窗 -->
+<div id="branchTreeModal" class="modal-overlay hidden">
+  <div class="modal-box branch-tree-modal">
+    <div class="modal-header">
+      <span>🔀 分支树</span>
+      <button class="btn-icon btn-small" id="btnBranchTreeClose">✕</button>
+    </div>
+    <div class="modal-body" id="branchTreeBody"></div>
   </div>
 </div>
 

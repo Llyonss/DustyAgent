@@ -120,7 +120,7 @@ module.exports = function(instanceDir, mentalRoot, hooks = {}) {
   // --- Scan events to find commits related to a mental name ---
   function findStoriesByMental(eventsDir, targetName) {
     let events;
-    try { events = readEvents(eventsDir); } catch { return []; }
+    try { events = readEvents(path.dirname(eventsDir)); } catch { return []; }
     const stories = [];
     let segStart = 0;
     for (let i = 0; i < events.length; i++) {
@@ -429,7 +429,7 @@ commit 前确保相关心智已更新，让用户确认验收后再 commit。`,
       },
       execute: async (input, ctrl, eventsDir) => {
         // Check for unclosed tasks
-        const allEvents = readEvents(eventsDir);
+        const allEvents = readEvents(path.dirname(eventsDir));
         const unclosed = getUnclosedTasks(allEvents);
         if (unclosed.length > 0) {
           return `错误：还有未闭合任务：${unclosed.join(' → ')}。请先 task(done=...) 闭合所有任务再 commit。`;
