@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const { readEvents } = require('./event');
+const { readEvents, writeEvent } = require('./event');
 const { infer } = require('./infer');
 const { run } = require('./action');
 
@@ -17,6 +17,12 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
     stop: () => { running = false; },
     wait: (seconds) => { waitMs = seconds * 1000; },
     signal,
+  };
+
+  // restart：写一条"模拟 stop 工具调用、返回不能停的原因"的事件，重新点燃循环
+  const restart = (reason) => {
+    writeEvent(eventsDir, { type: 'action', turn: Date.now(), tool: 'stop', toolUseId: 'stop_' + Date.now(), input: {}, output: String(reason ?? '') });
+    running = true;
   };
 
   while (running) {
@@ -36,7 +42,7 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
     try { model = JSON.parse(fs.readFileSync(path.join(instanceDir, 'model.json'), 'utf-8')); } catch {}
 
     const start = Date.now();
-    const { output, response, errors } = await run(
+    const { response, errors, request, blocks, outcome, startedAt, endedAt } = await run(
       infer(filtered, { system: fullSystem, tools, signal, model }),
       eventsDir, ctrl, tools, signal, start
     );
@@ -47,8 +53,10 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
     resp.start = start;
     resp.duration = duration;
     if (errors?.length) resp.errors = errors;
+    resp.blocks = blocks || [];
+    resp.outcome = outcome;
 
-    const turn = { output, response: resp };
+    const turn = { turn: start, request, response: resp, errors: errors || [], startedAt, endedAt, duration };
     if (hooks.output) hooks.output(turn);
     yield turn;
 
@@ -56,6 +64,9 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
       await sleep(waitMs);
       waitMs = 0;
     }
+
+    // 本轮跑完已决定停 → 通知 hooks.stop，它可调 restart(reason) 续命
+    if (!running && hooks.stop) await hooks.stop(restart);
   }
 }
 
