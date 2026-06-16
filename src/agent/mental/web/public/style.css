@@ -568,3 +568,101 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0e0e10;color:#c8c8d
 
 .usage-error{text-align:center;color:#e05050;font-size:13px;padding:20px 0;line-height:1.6}
 .usage-empty{text-align:center;color:#666;font-size:13px;padding:20px 0}
+
+/* ===== infer 日志查看器 ===== */
+.turn-log-btn{background:none;border:1px solid transparent;color:#555;cursor:pointer;font-size:12px;line-height:1;padding:1px 5px;border-radius:3px;transition:color .15s,border-color .15s;margin-left:auto}
+.turn-log-btn:hover{color:#7c6fe0;border-color:#3a3550}
+.turn-header .fork-btn{margin-left:4px}
+
+.logs-modal{width:1000px;max-width:96vw;height:82vh}
+.logs-body{flex:1;display:flex;min-height:0;overflow:hidden}
+.logs-list{width:240px;flex-shrink:0;border-right:1px solid #1e1e24;overflow-y:auto;padding:8px}
+.logs-detail{flex:1;overflow-y:auto;padding:14px 16px}
+
+.log-item{background:#16161d;border:1px solid #20202a;border-radius:7px;padding:8px 10px;margin-bottom:7px;cursor:pointer;transition:border-color .15s,background .15s}
+.log-item:hover{background:#1a1a24;border-color:#2e2e3a}
+.log-item.active{background:#1d1a2a;border-color:#7c6fe0}
+.log-item-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+.log-item-time{font-size:11px;color:#8a8a95;font-weight:600}
+.log-item-dur{font-size:10px;color:#4ec9b0}
+.log-item-model{font-size:10px;color:#666;font-family:ui-monospace,monospace;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log-item-toks{display:flex;gap:7px;align-items:center;font-size:10px;flex-wrap:wrap}
+.log-item-toks .tok-in{color:#6a9bd8}
+.log-item-toks .tok-out{color:#4ec9b0}
+.log-item-toks .tok-cache{color:#d4a64a}
+.log-item-msgs{color:#555;margin-left:auto}
+
+.log-loading,.log-placeholder{color:#666;font-size:13px;text-align:center;padding:30px 16px}
+.log-placeholder{color:#555}
+
+/* 概要卡 */
+.log-summary{background:#16161d;border:1px solid #22222c;border-radius:8px;padding:12px 14px;margin-bottom:14px}
+.log-sum-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.log-sum-model{font-size:13px;font-weight:600;color:#e0e0e8;font-family:ui-monospace,monospace}
+.log-sum-time{font-size:11px;color:#777}
+.log-sum-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+.log-sum-id{font-size:10px;color:#555;font-family:ui-monospace,monospace;margin-top:8px;word-break:break-all}
+.log-stat{display:flex;flex-direction:column;align-items:center;background:#101016;border:1px solid #1e1e26;border-radius:6px;padding:7px 4px}
+.log-stat.cache{border-color:#3a2f1a}
+.log-stat-v{font-size:13px;font-weight:600;color:#c8c8d0}
+.log-stat.cache .log-stat-v{color:#d4a64a}
+.log-stat-l{font-size:10px;color:#666;margin-top:3px}
+
+/* 折叠区块 */
+.log-fold{border:1px solid #20202a;border-radius:7px;margin-bottom:10px;overflow:hidden}
+.log-fold-head{display:flex;align-items:center;gap:7px;padding:9px 12px;background:#16161d;cursor:pointer;user-select:none;font-size:12px;font-weight:600;color:#c8c8d0}
+.log-fold-head:hover{background:#1a1a22}
+.log-fold-arrow{display:inline-block;transition:transform .15s;color:#666;font-size:10px}
+.log-fold.open .log-fold-arrow{transform:rotate(90deg)}
+.log-fold-title{flex:1}
+.log-fold-body{display:none;padding:10px 12px;background:#101015;border-top:1px solid #1c1c24}
+.log-fold.open .log-fold-body{display:block}
+
+/* 缓存徽章 */
+.log-cache-badge{display:inline-block;font-size:10px;font-weight:600;color:#d4a64a;background:rgba(212,166,74,.12);border:1px solid rgba(212,166,74,.4);border-radius:4px;padding:1px 6px;margin-left:6px;white-space:nowrap}
+
+/* tools */
+.log-tools{display:flex;flex-direction:column;gap:5px}
+.log-tool-item{display:flex;align-items:center;font-size:12px;color:#9a9aa5;font-family:ui-monospace,monospace}
+.log-tool-name{flex:0 0 auto}
+
+/* messages */
+.log-msg{border:1px solid #1e1e26;border-radius:7px;margin-bottom:9px;overflow:hidden;border-left:3px solid #333}
+.log-msg.role-user{border-left-color:#5a7bbd}
+.log-msg.role-assistant{border-left-color:#4ec9b0}
+.log-msg.role-tool{border-left-color:#c98a4e}
+.log-msg.role-system{border-left-color:#777}
+.log-msg-head{display:flex;align-items:center;gap:8px;padding:6px 10px;background:#15151c}
+.log-msg-num{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;border-radius:50%;background:#26263a;color:#a89ce8;font-size:11px;font-weight:700;padding:0 5px}
+.log-msg-role{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#9a9aa5}
+.log-msg.role-user .log-msg-role{color:#7d9be0}
+.log-msg.role-assistant .log-msg-role{color:#4ec9b0}
+.log-msg.role-tool .log-msg-role{color:#d49a6a}
+.log-msg-body{padding:8px 10px}
+
+/* content blocks */
+.log-block{margin-bottom:8px;position:relative}
+.log-block:last-child{margin-bottom:0}
+.log-block-tag{font-size:10px;color:#666;font-weight:600;margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px}
+.log-text{font-size:12.5px;line-height:1.55;color:#bcbcc6;white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto}
+.log-text.log-mono,.log-mono{font-family:ui-monospace,monospace;font-size:11px;color:#888}
+.log-json{font-size:11px;line-height:1.5;color:#a8b89a;background:#0c0c10;border:1px solid #1a1a22;border-radius:5px;padding:8px 10px;margin:0;white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto}
+.log-block-image .log-text{color:#888}
+.log-empty{color:#555;font-size:12px;font-style:italic}
+
+/* 移动端：列表/详情堆叠 */
+@media(max-width:720px){
+  .logs-modal{width:96vw;height:88vh}
+  .logs-body{flex-direction:column}
+  .logs-list{width:auto;max-height:30%;border-right:none;border-bottom:1px solid #1e1e24;display:flex;flex-wrap:wrap;gap:6px}
+  .log-item{flex:1 1 130px;margin-bottom:0}
+  .log-sum-grid{grid-template-columns:repeat(3,1fr)}
+}
+
+/* 日志错误展示 */
+.log-error-banner{background:rgba(208,80,80,.1);border:1px solid rgba(208,80,80,.45);border-radius:8px;padding:11px 13px;margin-bottom:14px}
+.log-error-title{font-size:12px;font-weight:700;color:#e07070;margin-bottom:6px}
+.log-error-msg{font-size:12px;line-height:1.5;color:#d89090;font-family:ui-monospace,monospace;white-space:pre-wrap;word-break:break-word}
+.log-item.has-error{border-color:rgba(208,80,80,.5)}
+.log-item.has-error:hover{border-color:rgba(208,80,80,.7)}
+.log-item-err{margin-right:4px;font-size:10px}

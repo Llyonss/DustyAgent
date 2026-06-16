@@ -17,18 +17,29 @@ async function* gen(events) { for (const e of events) yield e; }
 const noopCtrl = { stop: () => {}, wait: () => {}, signal: undefined };
 
 describe('run', () => {
-  it('handles speak block — writes speak event and returns output', async () => {
+  it('returns request snapshot from the request event', async () => {
     const dir = tmpDir();
-    const { output } = await run(gen([
+    const reqEvt = { type: 'request', system: ['sys'], tools: [{ name: 'cmd' }], messages: [{ role: 'user', content: 'hi' }] };
+    const { request } = await run(gen([
+      reqEvt,
+      { type: 'delta', start: true, id: 's1', tool: 'speak' },
+      { type: 'delta', done: true, id: 's1', tool: 'speak', output: 'ok' },
+      { type: 'response', usage: {} },
+    ]), path.join(dir, 'events'), { ...noopCtrl }, [], undefined);
+    assert.ok(request);
+    assert.deepStrictEqual(request.messages, [{ role: 'user', content: 'hi' }]);
+    assert.deepStrictEqual(request.system, ['sys']);
+  });
+
+  it('handles speak block — writes speak event to events file', async () => {
+    const dir = tmpDir();
+    await run(gen([
       { type: 'delta', start: true, id: 's1', tool: 'speak' },
       { type: 'delta', id: 's1', tool: 'speak', content: 'Hello ' },
       { type: 'delta', id: 's1', tool: 'speak', content: 'world' },
       { type: 'delta', done: true, id: 's1', tool: 'speak', output: 'Hello world' },
       { type: 'response', usage: { input_tokens: 10, output_tokens: 5 } },
     ]), path.join(dir, 'events'), { ...noopCtrl }, [], undefined);
-    assert.strictEqual(output.length, 1);
-    assert.strictEqual(output[0].type, 'text_block');
-    assert.strictEqual(output[0].text, 'Hello world');
     const events = readEvents(dir);
     const speak = events.find(e => e.tool === 'speak');
     assert.ok(speak);
@@ -63,14 +74,12 @@ describe('run', () => {
   it('executes tool and writes action event', async () => {
     const dir = tmpDir();
     const tools = [{ name: 'cmd', execute: async (input) => 'result: ' + input.command }];
-    const { output } = await run(gen([
+    await run(gen([
       { type: 'delta', start: true, id: 't1', tool: 'cmd' },
       { type: 'delta', id: 't1', tool: 'cmd', content: '{"command":"ls"}' },
       { type: 'delta', done: true, id: 't1', tool: 'cmd', input: { command: 'ls' } },
       { type: 'response', usage: {} },
     ]), path.join(dir, 'events'), { ...noopCtrl }, tools, undefined);
-    assert.strictEqual(output[0].type, 'tool_use');
-    assert.strictEqual(output[0].name, 'cmd');
     const events = readEvents(dir);
     const action = events.find(e => e.tool === 'cmd');
     assert.ok(action);

@@ -124,6 +124,62 @@ app.get('/api/events', (req, res) => {
   } catch { res.json({ events: [], running: false, usages: [] }); }
 });
 
+// 日志列表：扫描 logs/ 目录，返回每个 infer 日志的轻量元信息（倒序）
+app.get('/api/logs', (req, res) => {
+  const { instanceDir } = resolve(req.query.instance);
+  const logDir = path.join(instanceDir, 'logs');
+  try {
+    const files = fs.readdirSync(logDir).filter(f => f.startsWith('infer.') && f.endsWith('.json'));
+    const list = [];
+    for (const f of files) {
+      try {
+        const j = JSON.parse(fs.readFileSync(path.join(logDir, f), 'utf-8'));
+        const u = j.response?.usage || {};
+        list.push({
+          ts: j.ts,
+          turn: j.response?.start ?? null,
+          model: j.response?.model || '',
+          duration: j.response?.duration || 0,
+          msgCount: Array.isArray(j.request?.messages)
+            ? j.request.messages.length
+            : (Array.isArray(j.request?.messages?.messages) ? j.request.messages.messages.length : 0),
+          input_tokens: u.input_tokens || 0,
+          output_tokens: u.output_tokens || 0,
+          cache_read_input_tokens: u.cache_read_input_tokens || 0,
+          cache_creation_input_tokens: u.cache_creation_input_tokens || 0,
+          hasError: Array.isArray(j.response?.errors) && j.response.errors.length > 0,
+        });
+      } catch {}
+    }
+    list.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    res.json({ logs: list });
+  } catch { res.json({ logs: [] }); }
+});
+
+// 单条日志完整内容：优先按 turn(response.start) 匹配，否则按 ts(文件名/字段) 匹配
+app.get('/api/log', (req, res) => {
+  const { instanceDir } = resolve(req.query.instance);
+  const logDir = path.join(instanceDir, 'logs');
+  const turn = req.query.turn != null ? Number(req.query.turn) : null;
+  const ts = req.query.ts != null ? Number(req.query.ts) : null;
+  try {
+    const files = fs.readdirSync(logDir).filter(f => f.startsWith('infer.') && f.endsWith('.json'));
+    // 快路径：ts 直接命中文件名
+    if (ts != null) {
+      const direct = path.join(logDir, 'infer.' + ts + '.json');
+      if (fs.existsSync(direct)) return res.json(JSON.parse(fs.readFileSync(direct, 'utf-8')));
+    }
+    for (const f of files) {
+      try {
+        const j = JSON.parse(fs.readFileSync(path.join(logDir, f), 'utf-8'));
+        if (turn != null && j.response?.start === turn) return res.json(j);
+        if (ts != null && j.ts === ts) return res.json(j);
+      } catch {}
+    }
+    res.status(404).json({ error: 'log not found' });
+  } catch { res.status(404).json({ error: 'no logs' }); }
+});
+
 app.delete('/api/events', (req, res) => {
   const { instance, file, mode, files } = req.body;
   const { key, eventsDir, instanceDir } = resolve(instance);
@@ -151,9 +207,7 @@ app.delete('/api/events', (req, res) => {
 });
 
 function createHooks(key, instanceDir) {
-  const hooks = createMentalAgent(instanceDir);
-  hooks.stop = hooks.createStop(() => startLoop(key, instanceDir, hooks));
-  return hooks;
+  return createMentalAgent(instanceDir);
 }
 
 function startLoop(key, instanceDir, hooks) {
@@ -166,7 +220,6 @@ function startLoop(key, instanceDir, hooks) {
       if (e.name !== 'AbortError') console.error('Loop error:', e.message);
     } finally {
       loops.delete(key);
-      if (!controller.signal.aborted && hooks.stop) await hooks.stop();
     }
   })();
   loops.set(key, { controller, done });

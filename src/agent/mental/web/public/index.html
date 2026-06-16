@@ -43,6 +43,7 @@
       </span>
       <button class="btn-text" id="btnRestart" title="重启服务">🔄</button>
       <button class="btn-text" id="btnHistory" title="故事">📜 <span class="btn-label">故事</span></button>
+      <button class="btn-text" id="btnLogs" title="infer 日志">📋 <span class="btn-label">日志</span></button>
       <button class="btn-text" id="btnScreenshot" title="屏幕预览">🖥️ <span class="btn-label">屏幕</span></button>
       <button class="btn-text" id="btnTerminal" title="终端">⌨️ <span class="btn-label">终端</span></button>
       <span id="runningIndicator" class="hidden">●</span>
@@ -195,6 +196,20 @@
     <div class="modal-body" id="usageBody"></div>
     <div class="modal-footer">
       <button class="btn" id="btnUsageRefresh">🔄 刷新</button>
+    </div>
+  </div>
+</div>
+
+<!-- infer 日志弹窗 -->
+<div id="logsModal" class="modal-overlay hidden">
+  <div class="modal-box logs-modal">
+    <div class="modal-header">
+      <span>📋 infer 日志 — 请求快照</span>
+      <button class="btn-icon btn-small" id="btnLogsClose">✕</button>
+    </div>
+    <div class="logs-body">
+      <div class="logs-list" id="logsListPanel"></div>
+      <div class="logs-detail" id="logsDetailPanel"></div>
     </div>
   </div>
 </div>

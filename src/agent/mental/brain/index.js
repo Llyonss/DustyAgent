@@ -11,6 +11,7 @@ const toolMedia = require('../../../hooks/tool-media');
 const { tools: eyeTools, injectEyeEvents } = require('../../../hooks/tool-eye');
 const createLog = require('../../../hooks/output-log');
 const taskTool = require('../../../hooks/tool-task');
+const createSkillTool = require('../../../hooks/tool-skill');
 const { foldTasks } = require('../../../hooks/task-fold');
 
 function resolveTools(builtins, instanceDir) {
@@ -48,6 +49,7 @@ function getBuiltins(instanceDir, hooks) {
     ...createMentalTools(instanceDir, mentalRoot, hooks),
     ...toolLoop, ...toolCmd, ...toolFile, ...toolMedia, ...eyeTools,
     taskTool,
+    createSkillTool(mentalRoot),
   ];
 }
 
@@ -68,7 +70,8 @@ function createAgent(instanceDir, hooks) {
       return injectEyeEvents(folded);
     },
     output: (turn) => log.output(turn),
-    createStop: () => () => {},
+    // 循环将停时被调用，收到 restart(reason) 可续命。默认不续命（停下等用户）。
+    stop: (restart) => {},
   };
 }
 

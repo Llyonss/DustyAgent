@@ -238,12 +238,15 @@ export const Renderer = {
     if (interactive) {
       h += `<div class="turn-header">`;
       h += `<span class="turn-num">Turn ${num}</span>${costHtml}`;
+      const logBtn = g._turn != null ? `<button class="turn-log-btn" onclick="window._showLog(${g._turn})" title="查看此轮 infer 日志（请求快照）">📋</button>` : '';
+      h += logBtn;
       // 分叉按钮始终显示
       h += `<button class="fork-btn" onclick="window._forkBranch(${gid})" title="从此处分叉新分支">⑂</button>`;
       h += `<button class="turn-delete-btn" onclick="window._deleteTurn(${gid})" title="删除此turn所有事件">×</button>`;
       h += `</div>`;
     } else {
-      h += `<div class="turn-header"><span class="turn-num">Turn ${num}</span>${costHtml}</div>`;
+      const logBtn = g._turn != null ? `<button class="turn-log-btn" onclick="window._showLog(${g._turn})" title="查看此轮 infer 日志（请求快照）">📋</button>` : '';
+      h += `<div class="turn-header"><span class="turn-num">Turn ${num}</span>${costHtml}${logBtn}</div>`;
     }
 
     // 分叉点：渲染分支条

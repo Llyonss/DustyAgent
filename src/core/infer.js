@@ -10,7 +10,9 @@ async function* infer(events, { system, tools, signal, extra, model } = {}) {
   const providerName = model?.provider || process.env.LLM_PROVIDER || 'anthropic';
   const provider = require(`./providers/${providerName}`);
   const prompt = provider.buildMessages(groupEvents(events), system, tools);
-  yield { type: 'request', system, tools, messages: prompt };
+  // request 快照：先放 infer 参数版 system/tools，再用 prompt 真正构建的字段覆盖。
+  // prompt.messages 是纯消息数组；prompt.system/tools（若 provider 构建了）带 cache_control，更准确。
+  yield { type: 'request', system, tools, ...prompt };
 
   let stream;
   try { stream = await provider.createStream(prompt, signal, extra, model); }

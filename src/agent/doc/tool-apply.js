@@ -102,7 +102,7 @@ study 失败时，先用 read 工具读取草稿文件获取最新内容，再�
           fs.copyFileSync(draftPath, docPath);
           fs.unlinkSync(draftPath);
         }
-        ctrl.stop();
+        await ctrl.stop();
         return 'Version committed: ' + input.summary;
       },
     },

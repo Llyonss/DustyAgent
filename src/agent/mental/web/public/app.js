@@ -11,6 +11,7 @@ import { Chat } from './chat/index.js';
 import { Preset } from './preset.js';
 import { Screenshot } from './screenshot.js';
 import { Usage } from './usage.js';
+import { Logs } from './logs.js';
 import { Terminal } from './terminal.js';
 
 // 全局工具函数
@@ -92,6 +93,7 @@ const App = {
 
     Screenshot.init();
     Usage.init();
+    Logs.init();
     Chat.startPoll();
   }
 };

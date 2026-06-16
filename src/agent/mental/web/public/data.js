@@ -37,6 +37,17 @@ export const Data = {
     return r.json();
   },
 
+  // —— infer 日志 ——
+  async fetchLogs(instance) {
+    return get('/api/logs?instance=' + encodeURIComponent(instance));
+  },
+  async fetchLog(instance, { turn, ts }) {
+    let url = '/api/log?instance=' + encodeURIComponent(instance);
+    if (turn != null) url += '&turn=' + turn;
+    if (ts != null) url += '&ts=' + ts;
+    return get(url);
+  },
+
 
   // —— 读取 ——
 
