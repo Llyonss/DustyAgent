@@ -306,7 +306,7 @@ export const Renderer = {
       (e.output ? '\n→ ' + (typeof e.output === 'string' ? e.output : JSON.stringify(e.output, null, 2)) : '') +
       (e.error ? '\n⚠ ' + e.error : '');
     return `<div class="msg-tool" onclick="window._toggleTool('${uid}')">${toolSummary(e)} ▸</div>` +
-      `<div class="msg-tool-detail${open ? ' open' : ''}" id="${uid}">${window.esc(detail.substring(0, 3000))}${detail.length > 3000 ? '...' : ''}</div>`;
+      `<div class="msg-tool-detail${open ? ' open' : ''}" id="${uid}">${window.esc(detail)}</div>`;
   }
 };
 

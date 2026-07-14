@@ -1,8 +1,9 @@
 // === LLM 预设切换 ===
 // 职责：在 chat-header 中展示当前 preset，支持一键切换
+// 同时支持旧实例（/api/model*）和项目对话（/api/project/model*），通过 Source.current.mode 分流
 
 import { Data } from './data.js';
-import { Instance } from './instance.js';
+import { Source } from './source.js';
 
 export const Preset = {
   presets: {},
@@ -17,7 +18,8 @@ export const Preset = {
 
   async refresh() {
     try {
-      const data = await Data.fetchModelPresets(Instance.current);
+      const src = Source.get();
+      const data = await Data.fetchModelPresets(src.id);
       this.presets = data.presets || {};
       this.current = data.current;
       this.hasConfig = data.hasConfig;
@@ -65,7 +67,7 @@ export const Preset = {
       const sel = name === this.current ? ' selected' : '';
       const label = (p.provider || '') + ' · ' + (p.model || '').replace('anthropic/', '');
       html += `<div class="preset-drop-item${sel}" data-preset="${window.esc(name)}">` +
-        `<span class="preset-dot">${sel ? '●' : '○'}</span>` +
+        `<span class="preset-dot">${sel ? '◆' : '◇'}</span>` +
         `<span class="preset-name">${window.esc(name)}</span>` +
         `<span class="preset-label">${window.esc(label)}</span>` +
         `</div>`;
@@ -103,7 +105,8 @@ export const Preset = {
   async select(name) {
     const trigger = document.getElementById('presetTrigger');
     try {
-      await Data.saveModel(Instance.current, null, name);
+      const src = Source.get();
+      await Data.saveModel(src.id, null, name);
       this.current = name;
       this.hasConfig = true;
       this.renderTrigger();

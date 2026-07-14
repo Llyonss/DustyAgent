@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "cli": "node src/cli/index.js",
-    "web": "node src/web/index.js",
+    "cli": "node src/agent/cli/index.js",
+    "web": "node src/agent/web/index.js",
     "novel": "node src/agent/novel/web/index.js",
     "mental": "node src/agent/mental/web/index.js",
     "mental:restart": "src\\agent\\mental\\restart.bat",
     "mental:stop": "src\\agent\\mental\\stop.bat",
+    "guardian": "node src/guardian.js",
     "tunnel": "node src/tunnel.js",
     "game": "node src/agent/game/web/index.js",
     "test": "node --test src/tests/test-event.js src/tests/test-prompt.js src/tests/test-action.js src/tests/test-infer.js src/tests/test-loop.js src/tests/test-web-abort.js"

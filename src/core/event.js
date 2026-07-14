@@ -1,6 +1,24 @@
 const fs = require('fs');
 const path = require('path');
 
+// ═══ 缓存 ═══
+// 事件文件不可变（写完不再改），天然适合按文件名缓存。
+// 流式写入中的文件由 finishAction 主动失效。
+const _cache = new Map();
+
+function _cachedRead(file) {
+  const stat = fs.statSync(file);
+  const entry = _cache.get(file);
+  if (entry && entry.mtime === stat.mtimeMs) return entry.data;
+  const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  _cache.set(file, { mtime: stat.mtimeMs, data });
+  return data;
+}
+
+function _cacheInvalidate(file) {
+  _cache.delete(file);
+}
+
 // ═══ 内部 ═══
 
 function readConfig(instanceDir) {
@@ -34,7 +52,7 @@ function readOneDir(dir) {
     .filter(f => f.startsWith('event.') && f.endsWith('.json'))
     .sort();
   return files.map(f => {
-    const data = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'));
+    const data = _cachedRead(path.join(dir, f));
     data._file = f;
     return data;
   });
@@ -76,25 +94,56 @@ function beginAction(eventsDir, { turn, tool, toolUseId, toInput }) {
     input:  toInput ? '' : {},
     output: toInput ? {} : '',
   });
-  return { file, raw: '', toInput };
+  return { file, raw: '', toInput, _flushed: false };
 }
 
-/** 增量追加 chunk */
+/** 增量追加 chunk — 纯内存累积，不读盘不写盘 */
 function appendAction(handle, chunk) {
   handle.raw += chunk || '';
-  const event = JSON.parse(fs.readFileSync(handle.file, 'utf-8'));
-  handle.toInput ? event.input  = handle.raw
-                 : event.output = handle.raw;
-  fs.writeFileSync(handle.file, JSON.stringify(event, null, 2));
 }
 
-/** 闭合：写入最终 input/output */
-function finishAction(handle, { input, output, error }) {
+/** 闭合：写入最终 input/output，失效缓存 */
+function finishAction(handle, { input, output, error } = {}) {
   const event = JSON.parse(fs.readFileSync(handle.file, 'utf-8'));
   if (input  != null) event.input  = input;
   if (output != null) event.output = output;
   if (error) event.error = true;
   fs.writeFileSync(handle.file, JSON.stringify(event, null, 2));
+  _cacheInvalidate(handle.file);
 }
 
-module.exports = { readEvents, writeEvent, beginAction, appendAction, finishAction };
+/** 检测并修复孤儿事件：有 tool_use input 但 output 为空的 action */
+function fixOrphans(eventsDir) {
+  if (!fs.existsSync(eventsDir)) return 0;
+  const files = fs.readdirSync(eventsDir)
+    .filter(f => f.startsWith('event.') && f.endsWith('.json'))
+    .sort();
+
+  let fixed = 0;
+  for (const f of files) {
+    const filePath = path.join(eventsDir, f);
+    let event;
+    try { event = JSON.parse(fs.readFileSync(filePath, 'utf-8')); }
+    catch { continue; }
+    if (event.type !== 'action') continue;
+    if (event.tool === 'speak' || event.tool === 'thinking') continue;
+
+    const hasInput = event.input && (typeof event.input === 'object'
+      ? Object.keys(event.input).length > 0
+      : String(event.input).length > 0);
+    const hasOutput = event.output && (typeof event.output === 'object'
+      ? Object.keys(event.output).length > 0
+      : String(event.output).length > 0);
+
+    if (hasInput && !hasOutput) {
+      event.output = '[interrupted: process crashed during execution]';
+      event.error = true;
+      fs.writeFileSync(filePath, JSON.stringify(event, null, 2));
+      _cacheInvalidate(filePath);
+      fixed++;
+    }
+  }
+  return fixed;
+}
+
+module.exports = { readEvents, writeEvent, beginAction, appendAction, finishAction, fixOrphans };

@@ -1,0 +1,1774 @@
+{
+  "root": "src/agent/mental/web",
+  "stores": [
+    {
+      "id": "events",
+      "path": "mental/instances/*/events/*.json",
+      "desc": "事件流文件，系统唯一事实源。agent循环与用户输入都写入这里，前端轮询读取回显。"
+    },
+    {
+      "id": "history",
+      "path": "mental/instances/*/history/*.md",
+      "desc": "commit 产出的故事快照，含 frontmatter 元信息。"
+    },
+    {
+      "id": "mentalMd",
+      "path": "mental/space/*.md + *.links",
+      "desc": "心智节点内容与关系链接，跨实例共享。"
+    },
+    {
+      "id": "modelJson",
+      "path": "mental/instances/*/model.json",
+      "desc": "实例的模型配置（provider/apiKey/baseUrl/model）。"
+    },
+    {
+      "id": "systemMd",
+      "path": "mental/instances/*/system.md + tools/*.js",
+      "desc": "实例的人格提示词与自定义工具代码。"
+    },
+    {
+      "id": "logs",
+      "path": "mental/instances/*/logs/infer.*.json",
+      "desc": "每次推理的完整请求/响应日志。"
+    },
+    {
+      "id": "loopsMap",
+      "path": "内存 loops:Map<key,{controller,done}>",
+      "desc": "运行中的 agent 循环句柄，非持久化。"
+    },
+    {
+      "id": "projectFs",
+      "path": "项目文件系统（root 之外）",
+      "desc": "文件浏览器可读的整个项目目录。"
+    }
+  ],
+  "interfaces": [
+    {
+      "id": "chat.send",
+      "kind": "command",
+      "group": "对话",
+      "groupHint": "left",
+      "label": "发送消息",
+      "at": "index.html#sendBtn / #chatInput",
+      "in": [
+        "输入框文本",
+        "localStorage.instance"
+      ],
+      "writes": [
+        "events"
+      ],
+      "desc": "用户发消息 → 落盘为 user 事件 → 若循环未跑则启动 agent 循环。",
+      "steps": [
+        {
+          "id": "send",
+          "file": "public/chat/index.js",
+          "symbol": "Chat.send",
+          "desc": "读输入框、清空、失败回填，立即触发一次轮询",
+          "in": [
+            "#chatInput",
+            "instance"
+          ],
+          "out": [
+            "text"
+          ]
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.sendEvent",
+          "desc": "所有 fetch 的唯一出口，POST 到 /api/events",
+          "in": [
+            "instance",
+            "text"
+          ],
+          "out": [
+            "请求体"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "POST /api/events",
+          "desc": "writeEvent 写 user 事件；若 loops 无此 key 则 startLoop",
+          "in": [
+            "content"
+          ],
+          "out": [
+            "事件文件",
+            "loop"
+          ]
+        },
+        {
+          "id": "loop",
+          "file": "index.js",
+          "symbol": "startLoop",
+          "desc": "AbortController 包裹 core/loop 异步迭代，结束自清理 loops",
+          "in": [
+            "instanceDir",
+            "hooks"
+          ],
+          "out": [
+            "loops.set"
+          ]
+        },
+        {
+          "id": "core",
+          "file": "../../core/loop.js",
+          "symbol": "loop",
+          "external": true,
+          "desc": "agent 推理循环，持续产出 action 事件文件",
+          "in": [
+            "events/*"
+          ],
+          "out": [
+            "events/* 新增"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "send",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "POST /api/events"
+        },
+        {
+          "from": "route",
+          "to": "loop",
+          "kind": "call"
+        },
+        {
+          "from": "loop",
+          "to": "core",
+          "kind": "async",
+          "label": "for await"
+        }
+      ]
+    },
+    {
+      "id": "chat.list",
+      "kind": "query",
+      "group": "对话",
+      "groupHint": "left",
+      "label": "对话气泡列表",
+      "at": "index.html#chatMessages",
+      "in": [
+        "localStorage.instance"
+      ],
+      "reads": [
+        "events"
+      ],
+      "refresh": "200ms 自轮询，JSON 对比去重，15 连败降级为停止态",
+      "desc": "轮询读取事件流，渲染成对话气泡；agent 输出与用户消息同源，不区分。",
+      "steps": [
+        {
+          "id": "poll",
+          "file": "public/chat/index.js",
+          "symbol": "Chat._poll",
+          "desc": "200ms 轮询，Promise.all 同时取事件与分支",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "events",
+            "running"
+          ]
+        },
+        {
+          "id": "get",
+          "file": "index.js",
+          "symbol": "GET /api/events",
+          "desc": "readEvents + running 状态 + usage 统计",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "events",
+            "usages"
+          ]
+        },
+        {
+          "id": "render",
+          "file": "public/renderer/index.js",
+          "symbol": "Renderer.render",
+          "desc": "events → 对话 HTML，含 usage 与分支标记",
+          "in": [
+            "events",
+            "usages"
+          ],
+          "out": [
+            "#chatMessages"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "poll",
+          "to": "get",
+          "kind": "http",
+          "label": "GET /api/events"
+        },
+        {
+          "from": "get",
+          "to": "render",
+          "kind": "call"
+        }
+      ]
+    },
+    {
+      "id": "chat.stop",
+      "kind": "command",
+      "group": "对话",
+      "groupHint": "left",
+      "label": "停止循环",
+      "at": "index.html#stopBtn",
+      "reads": [
+        "loopsMap"
+      ],
+      "desc": "中止运行中的 agent 循环。",
+      "steps": [
+        {
+          "id": "abort",
+          "file": "public/chat/index.js",
+          "symbol": "Chat.abort",
+          "desc": "调用停止接口",
+          "in": [
+            "instance"
+          ],
+          "out": []
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.stopLoop",
+          "desc": "DELETE /api/loop",
+          "in": [
+            "instance"
+          ],
+          "out": []
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "DELETE /api/loop",
+          "desc": "取出 loops 句柄，controller.abort() 并等待 done",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "loops.delete"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "abort",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "DELETE /api/loop"
+        }
+      ]
+    },
+    {
+      "id": "chat.continue",
+      "kind": "command",
+      "group": "对话",
+      "groupHint": "left",
+      "label": "继续/重试",
+      "at": "index.html#continueBtn",
+      "writes": [
+        "events"
+      ],
+      "desc": "循环停在工具处则继续；停在错误则删除尾部 error 事件后重试。",
+      "steps": [
+        {
+          "id": "cont",
+          "file": "public/chat/index.js",
+          "symbol": "Chat.continueLoop",
+          "desc": "按 _tailState 决定 retry 或 continue",
+          "in": [
+            "instance",
+            "_tailState"
+          ],
+          "out": []
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.continueLoop/retryEvent",
+          "desc": "POST /api/events（空体=继续，retry=重试）",
+          "in": [
+            "instance"
+          ],
+          "out": []
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "POST /api/events",
+          "desc": "retry 时删尾部 error 事件；无 loop 则 startLoop",
+          "in": [
+            "retry"
+          ],
+          "out": [
+            "loop"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "cont",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "POST /api/events"
+        }
+      ]
+    },
+    {
+      "id": "chat.deleteTurn",
+      "kind": "command",
+      "group": "对话",
+      "groupHint": "left",
+      "label": "删除轮次",
+      "reads": [
+        "loopsMap"
+      ],
+      "writes": [
+        "events"
+      ],
+      "desc": "删除一个 turn 的多个事件文件（运行中禁止）。",
+      "steps": [
+        {
+          "id": "del",
+          "file": "public/chat/index.js",
+          "symbol": "Chat._deleteTurn",
+          "desc": "取 turn 的事件文件列表，确认后删除",
+          "in": [
+            "gid"
+          ],
+          "out": [
+            "files"
+          ]
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.deleteEvents",
+          "desc": "DELETE /api/events 带 files 数组",
+          "in": [
+            "instance",
+            "files"
+          ],
+          "out": []
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "DELETE /api/events",
+          "desc": "运行中返回 409；否则逐个 unlink 事件文件",
+          "in": [
+            "files"
+          ],
+          "out": [
+            "deleted"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "del",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "DELETE /api/events"
+        }
+      ]
+    },
+    {
+      "id": "instance.list",
+      "kind": "query",
+      "group": "实例",
+      "groupHint": "top",
+      "label": "实例列表",
+      "reads": [
+        "events"
+      ],
+      "desc": "读取 instances 目录下所有实例名。",
+      "steps": [
+        {
+          "id": "fetch",
+          "file": "public/instance.js",
+          "symbol": "Instance 初始化",
+          "desc": "拉取实例列表填充选择器",
+          "in": [],
+          "out": [
+            "list"
+          ]
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.fetchInstances",
+          "desc": "GET /api/instances",
+          "in": [],
+          "out": [
+            "names[]"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "GET /api/instances",
+          "desc": "readdir instancesDir 返回目录名",
+          "in": [],
+          "out": [
+            "dirs[]"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "fetch",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "GET /api/instances"
+        }
+      ]
+    },
+    {
+      "id": "instance.create",
+      "kind": "command",
+      "group": "实例",
+      "groupHint": "top",
+      "label": "创建实例",
+      "writes": [
+        "events",
+        "systemMd"
+      ],
+      "desc": "创建新实例目录并写入默认 system.md 与 tools.json。",
+      "steps": [
+        {
+          "id": "create",
+          "file": "public/instance.js",
+          "symbol": "创建实例",
+          "desc": "输入名字，请求创建",
+          "in": [
+            "name"
+          ],
+          "out": []
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.createInstance",
+          "desc": "POST /api/instances",
+          "in": [
+            "name"
+          ],
+          "out": []
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "POST /api/instances",
+          "desc": "ensureInstance 建目录+默认 system/tools",
+          "in": [
+            "name"
+          ],
+          "out": [
+            "实例目录"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "create",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "POST /api/instances"
+        }
+      ]
+    },
+    {
+      "id": "instance.delete",
+      "kind": "command",
+      "group": "实例",
+      "groupHint": "top",
+      "label": "删除实例",
+      "reads": [
+        "loopsMap"
+      ],
+      "writes": [
+        "events"
+      ],
+      "desc": "停止循环并递归删除实例目录。",
+      "steps": [
+        {
+          "id": "del",
+          "file": "public/instance.js",
+          "symbol": "删除实例",
+          "desc": "确认后请求删除",
+          "in": [
+            "name"
+          ],
+          "out": []
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.deleteInstance",
+          "desc": "DELETE /api/instances",
+          "in": [
+            "name"
+          ],
+          "out": []
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "DELETE /api/instances",
+          "desc": "abort 循环后 rmSync 整个目录",
+          "in": [
+            "name"
+          ],
+          "out": [
+            "已删除"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "del",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "DELETE /api/instances"
+        }
+      ]
+    },
+    {
+      "id": "branch.fork",
+      "kind": "command",
+      "group": "分支",
+      "groupHint": "left",
+      "label": "创建分支",
+      "writes": [
+        "events"
+      ],
+      "desc": "从某个事件点 fork 出分支，写 .dusty.json 记录 fork 点。",
+      "steps": [
+        {
+          "id": "fork",
+          "file": "public/chat/index.js",
+          "symbol": "Chat.forkBranch",
+          "desc": "创建分支后自动切入",
+          "in": [
+            "branchName",
+            "at"
+          ],
+          "out": []
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.createBranch",
+          "desc": "POST /api/branch",
+          "in": [
+            "instance",
+            "branchName",
+            "at"
+          ],
+          "out": [
+            "branchKey"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "POST /api/branch",
+          "desc": "建 events/branchName 目录 + .dusty.json 记 fork 点",
+          "in": [
+            "at"
+          ],
+          "out": [
+            "分支目录"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "fork",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "POST /api/branch"
+        }
+      ]
+    },
+    {
+      "id": "branch.tree",
+      "kind": "query",
+      "group": "分支",
+      "groupHint": "left",
+      "label": "分支树",
+      "at": "index.html#branchTreeModal",
+      "reads": [
+        "events"
+      ],
+      "desc": "递归扫描 events 子目录中带 fork 的 .dusty.json 构造分支树。",
+      "steps": [
+        {
+          "id": "show",
+          "file": "public/chat/index.js",
+          "symbol": "Chat.showBranchTree",
+          "desc": "渲染分支树弹窗，挂切换/删除",
+          "in": [
+            "_branchesCache"
+          ],
+          "out": [
+            "HTML"
+          ]
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.fetchBranches",
+          "desc": "GET /api/branches",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "tree"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "GET /api/branches",
+          "desc": "递归 scan，读 .dusty.json 的 fork 字段",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "branches[]"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "show",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "GET /api/branches"
+        }
+      ]
+    },
+    {
+      "id": "branch.delete",
+      "kind": "command",
+      "group": "分支",
+      "groupHint": "left",
+      "label": "删除分支",
+      "reads": [
+        "loopsMap"
+      ],
+      "writes": [
+        "events"
+      ],
+      "desc": "停止分支循环并递归删除分支目录，若删的是当前分支则切回父线。",
+      "steps": [
+        {
+          "id": "del",
+          "file": "public/chat/index.js",
+          "symbol": "Chat._deleteBranchNode",
+          "desc": "确认后删除，必要时切回父实例",
+          "in": [
+            "key"
+          ],
+          "out": []
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.deleteBranch",
+          "desc": "DELETE /api/branch",
+          "in": [
+            "instance",
+            "branchName"
+          ],
+          "out": []
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "DELETE /api/branch",
+          "desc": "abort 分支循环后 rmSync 分支目录",
+          "in": [
+            "branchName"
+          ],
+          "out": [
+            "已删除"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "del",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "DELETE /api/branch"
+        }
+      ]
+    },
+    {
+      "id": "mental.graph",
+      "kind": "query",
+      "group": "心智",
+      "groupHint": "right",
+      "label": "心智图谱",
+      "at": "index.html#graphView",
+      "reads": [
+        "mentalMd"
+      ],
+      "desc": "读取所有心智节点与 links 关系，力导向图渲染。",
+      "steps": [
+        {
+          "id": "render",
+          "file": "public/graph/index.js",
+          "symbol": "Graph 渲染",
+          "desc": "力导向布局节点与边",
+          "in": [
+            "nodes",
+            "edges"
+          ],
+          "out": [
+            "SVG"
+          ]
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.fetchGraph",
+          "desc": "GET /api/graph（带缓存）",
+          "in": [],
+          "out": [
+            "nodes",
+            "edges"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "GET /api/graph",
+          "desc": "扫 space/*.md 为节点，解析 *.links 为边",
+          "in": [],
+          "out": [
+            "nodes[]",
+            "edges[]"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "render",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "GET /api/graph"
+        }
+      ]
+    },
+    {
+      "id": "mental.content",
+      "kind": "query",
+      "group": "心智",
+      "groupHint": "right",
+      "label": "心智内容",
+      "at": "index.html#contentView",
+      "reads": [
+        "mentalMd"
+      ],
+      "desc": "读取单个心智节点的 md 与 links。",
+      "steps": [
+        {
+          "id": "select",
+          "file": "public/content/index.js",
+          "symbol": "Content.select",
+          "desc": "选中节点，加载并渲染内容",
+          "in": [
+            "name"
+          ],
+          "out": [
+            "HTML"
+          ]
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.fetchMental",
+          "desc": "GET /api/room（带缓存）",
+          "in": [
+            "name"
+          ],
+          "out": [
+            "content",
+            "links"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "GET /api/room",
+          "desc": "读 space/name.md 与 name.links",
+          "in": [
+            "name"
+          ],
+          "out": [
+            "md",
+            "links"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "select",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "GET /api/room"
+        }
+      ]
+    },
+    {
+      "id": "mental.save",
+      "kind": "command",
+      "group": "心智",
+      "groupHint": "right",
+      "label": "保存心智",
+      "writes": [
+        "mentalMd"
+      ],
+      "desc": "保存心智节点的 md/links 内容，清缓存。",
+      "steps": [
+        {
+          "id": "save",
+          "file": "public/content/editor.js",
+          "symbol": "编辑保存",
+          "desc": "编辑器提交内容",
+          "in": [
+            "name",
+            "suffix",
+            "content"
+          ],
+          "out": []
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.saveMental",
+          "desc": "POST /api/room-save 并清 mental/graph 缓存",
+          "in": [
+            "name",
+            "suffix",
+            "content"
+          ],
+          "out": []
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "POST /api/room-save",
+          "desc": "写 space/name+suffix，换行归一",
+          "in": [
+            "content"
+          ],
+          "out": [
+            "文件"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "save",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "POST /api/room-save"
+        }
+      ]
+    },
+    {
+      "id": "files.tree",
+      "kind": "query",
+      "group": "文件",
+      "groupHint": "right",
+      "label": "文件目录树",
+      "at": "index.html#fileTree",
+      "reads": [
+        "projectFs"
+      ],
+      "desc": "懒加载浏览项目文件系统（root 之外的整个项目）。",
+      "steps": [
+        {
+          "id": "toggle",
+          "file": "public/files/index.js",
+          "symbol": "Files._toggleDir",
+          "desc": "展开目录，缓存 entries",
+          "in": [
+            "dirPath"
+          ],
+          "out": [
+            "entries"
+          ]
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.fetchFiles",
+          "desc": "GET /api/files",
+          "in": [
+            "path"
+          ],
+          "out": [
+            "entries"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "GET /api/files",
+          "desc": "readdir，过滤忽略目录，校验 projectRoot 越权",
+          "in": [
+            "path"
+          ],
+          "out": [
+            "entries[]"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "toggle",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "GET /api/files"
+        }
+      ]
+    },
+    {
+      "id": "files.open",
+      "kind": "query",
+      "group": "文件",
+      "groupHint": "right",
+      "label": "文件内容",
+      "at": "index.html#fileBody",
+      "reads": [
+        "projectFs"
+      ],
+      "desc": "读取单文件：图片转 base64，代码/graph 走可视化，md 渲染。",
+      "steps": [
+        {
+          "id": "open",
+          "file": "public/files/index.js",
+          "symbol": "Files.openFile",
+          "desc": "请求文件，按类型分派渲染",
+          "in": [
+            "filePath"
+          ],
+          "out": [
+            "data"
+          ]
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.fetchFile",
+          "desc": "GET /api/file",
+          "in": [
+            "path"
+          ],
+          "out": [
+            "content",
+            "ext"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "GET /api/file",
+          "desc": "2MB 上限，图片 base64，越权校验",
+          "in": [
+            "path"
+          ],
+          "out": [
+            "content"
+          ]
+        },
+        {
+          "id": "gview",
+          "file": "public/graph-view/index.js",
+          "symbol": "GraphView.renderTo",
+          "desc": ".graph → 接口图（本功能自身）",
+          "in": [
+            "content"
+          ],
+          "out": [
+            "接口图"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "open",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "GET /api/file"
+        },
+        {
+          "from": "route",
+          "to": "gview",
+          "kind": "call",
+          "label": "ext=graph"
+        }
+      ]
+    },
+    {
+      "id": "story.history",
+      "kind": "query",
+      "group": "故事",
+      "groupHint": "overlay",
+      "label": "故事历史",
+      "at": "index.html#historyPanel",
+      "reads": [
+        "history"
+      ],
+      "desc": "读取 commit 产出的故事快照列表。",
+      "steps": [
+        {
+          "id": "toggle",
+          "file": "public/chat/index.js",
+          "symbol": "Chat.toggleHistory",
+          "desc": "展开历史面板，渲染故事列表",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "HTML"
+          ]
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.fetchHistory",
+          "desc": "GET /api/history",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "stories[]"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "GET /api/history",
+          "desc": "parseHistoryDir 解析 frontmatter+正文",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "items[]"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "toggle",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "GET /api/history"
+        }
+      ]
+    },
+    {
+      "id": "story.deleteCommit",
+      "kind": "command",
+      "group": "故事",
+      "groupHint": "overlay",
+      "label": "删除 commit",
+      "reads": [
+        "loopsMap"
+      ],
+      "writes": [
+        "events",
+        "history"
+      ],
+      "desc": "删除一个 commit 事件文件及其对应的历史故事文件。",
+      "steps": [
+        {
+          "id": "del",
+          "file": "public/chat/index.js",
+          "symbol": "Chat._deleteCommit",
+          "desc": "确认后删除 commit",
+          "in": [
+            "index"
+          ],
+          "out": []
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.deleteCommit",
+          "desc": "DELETE /api/commit",
+          "in": [
+            "instance",
+            "index"
+          ],
+          "out": []
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "DELETE /api/commit",
+          "desc": "运行中 409；删 commit 事件 + history/NNN.md",
+          "in": [
+            "index"
+          ],
+          "out": [
+            "已删除"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "del",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "DELETE /api/commit"
+        }
+      ]
+    },
+    {
+      "id": "model.config",
+      "kind": "query",
+      "group": "模型",
+      "groupHint": "overlay",
+      "label": "模型配置",
+      "at": "index.html 模型面板",
+      "reads": [
+        "modelJson"
+      ],
+      "desc": "读取实例模型配置与可选预设。",
+      "steps": [
+        {
+          "id": "load",
+          "file": "public/preset.js",
+          "symbol": "Preset 加载",
+          "desc": "拉取当前配置与预设列表",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "config",
+            "presets"
+          ]
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.fetchModel/Presets",
+          "desc": "GET /api/model + /api/model-presets",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "config"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "GET /api/model(-presets)",
+          "desc": "读 model.json；detectPreset 匹配预设名",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "config"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "load",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "GET /api/model"
+        }
+      ]
+    },
+    {
+      "id": "model.save",
+      "kind": "command",
+      "group": "模型",
+      "groupHint": "overlay",
+      "label": "保存模型配置",
+      "writes": [
+        "modelJson"
+      ],
+      "desc": "写入实例模型配置或应用预设。",
+      "steps": [
+        {
+          "id": "save",
+          "file": "public/preset.js",
+          "symbol": "Preset 保存",
+          "desc": "提交配置或选预设",
+          "in": [
+            "config",
+            "preset"
+          ],
+          "out": []
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.saveModel",
+          "desc": "POST /api/model",
+          "in": [
+            "instance",
+            "config"
+          ],
+          "out": []
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "POST /api/model",
+          "desc": "预设则展开为完整配置，写 model.json",
+          "in": [
+            "config"
+          ],
+          "out": [
+            "文件"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "save",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "POST /api/model"
+        }
+      ]
+    },
+    {
+      "id": "self.config",
+      "kind": "query",
+      "group": "自我",
+      "groupHint": "overlay",
+      "label": "人格与工具",
+      "at": "index.html 自我面板",
+      "reads": [
+        "systemMd"
+      ],
+      "desc": "读取实例 system.md、env 信息、内置+自定义工具。",
+      "steps": [
+        {
+          "id": "load",
+          "file": "public/content/self.js",
+          "symbol": "Self 加载",
+          "desc": "拉取人格与工具",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "systemMd",
+            "tools"
+          ]
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.fetchSelf/Tools",
+          "desc": "GET /api/instance + /api/tools",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "systemMd",
+            "tools"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "GET /api/instance(+tools)",
+          "desc": "读 system.md，拼 env；加载内置+tools/*.js",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "systemMd",
+            "builtins",
+            "custom"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "load",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "GET /api/instance"
+        }
+      ]
+    },
+    {
+      "id": "self.save",
+      "kind": "command",
+      "group": "自我",
+      "groupHint": "overlay",
+      "label": "保存人格/工具",
+      "writes": [
+        "systemMd"
+      ],
+      "desc": "写入实例 system.md 或自定义工具文件。",
+      "steps": [
+        {
+          "id": "save",
+          "file": "public/content/editor.js",
+          "symbol": "编辑保存",
+          "desc": "编辑器提交",
+          "in": [
+            "suffix",
+            "content"
+          ],
+          "out": []
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.saveSelf",
+          "desc": "POST /api/self-save，清 self/tools 缓存",
+          "in": [
+            "instance",
+            "suffix",
+            "content"
+          ],
+          "out": []
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "POST /api/self-save",
+          "desc": "写 instanceDir/suffix，建父目录",
+          "in": [
+            "content"
+          ],
+          "out": [
+            "文件"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "save",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "POST /api/self-save"
+        }
+      ]
+    },
+    {
+      "id": "logs.list",
+      "kind": "query",
+      "group": "系统",
+      "groupHint": "overlay",
+      "label": "推理日志",
+      "at": "index.html#logsModal",
+      "reads": [
+        "logs"
+      ],
+      "desc": "扫描 logs 目录列出每次推理的轻量元信息，点开看完整详情。",
+      "steps": [
+        {
+          "id": "open",
+          "file": "public/logs.js",
+          "symbol": "Logs.show",
+          "desc": "列表 + 详情双区",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "HTML"
+          ]
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.fetchLogs/Log",
+          "desc": "GET /api/logs + /api/log",
+          "in": [
+            "instance",
+            "turn/ts"
+          ],
+          "out": [
+            "logs",
+            "detail"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "GET /api/logs(+/api/log)",
+          "desc": "读 infer.*.json，提取 usage/duration；详情按 turn/ts 匹配",
+          "in": [
+            "instance"
+          ],
+          "out": [
+            "list",
+            "detail"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "open",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "GET /api/logs"
+        }
+      ]
+    },
+    {
+      "id": "usage.sub",
+      "kind": "query",
+      "group": "系统",
+      "groupHint": "top",
+      "label": "用量/订阅",
+      "at": "index.html#usage",
+      "desc": "读取 zenmux 订阅额度（代理到外部管理 API）。",
+      "steps": [
+        {
+          "id": "load",
+          "file": "public/usage.js",
+          "symbol": "Usage 加载",
+          "desc": "展示订阅额度",
+          "in": [],
+          "out": [
+            "额度"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "GET /api/zenmux/subscription",
+          "desc": "带管理 key 转发到外部 zenmux API",
+          "in": [],
+          "out": [
+            "subscription"
+          ]
+        },
+        {
+          "id": "ext",
+          "file": "zenmux.ai/api",
+          "service": "ZenMux",
+          "symbol": "management/subscription/detail",
+          "external": true,
+          "desc": "外部订阅明细接口",
+          "in": [
+            "Bearer key"
+          ],
+          "out": [
+            "detail"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "load",
+          "to": "route",
+          "kind": "http",
+          "label": "GET /api/zenmux/subscription"
+        },
+        {
+          "from": "route",
+          "to": "ext",
+          "kind": "http",
+          "label": "转发"
+        }
+      ]
+    },
+    {
+      "id": "screenshot.get",
+      "kind": "query",
+      "group": "系统",
+      "groupHint": "overlay",
+      "label": "截屏",
+      "reads": [
+        "projectFs"
+      ],
+      "desc": "抓取本机屏幕截图（base64）。",
+      "steps": [
+        {
+          "id": "load",
+          "file": "public/screenshot.js",
+          "symbol": "Screenshot 加载",
+          "desc": "展示截图",
+          "in": [],
+          "out": [
+            "image"
+          ]
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "GET /api/screenshot",
+          "desc": "调用 scripts/screenshot",
+          "in": [],
+          "out": [
+            "base64"
+          ]
+        },
+        {
+          "id": "ext",
+          "file": "../../../../scripts/screenshot.js",
+          "symbol": "getScreenshot",
+          "external": true,
+          "desc": "系统级抓屏",
+          "in": [],
+          "out": [
+            "image"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "load",
+          "to": "route",
+          "kind": "http",
+          "label": "GET /api/screenshot"
+        },
+        {
+          "from": "route",
+          "to": "ext",
+          "kind": "call"
+        }
+      ]
+    },
+    {
+      "id": "system.restart",
+      "kind": "command",
+      "group": "系统",
+      "groupHint": "overlay",
+      "label": "重启服务",
+      "desc": "关闭当前 http server 并 detached 重启进程。",
+      "steps": [
+        {
+          "id": "req",
+          "file": "public/instance.js",
+          "symbol": "重启触发",
+          "desc": "请求重启",
+          "in": [],
+          "out": []
+        },
+        {
+          "id": "api",
+          "file": "public/data.js",
+          "symbol": "Data.restartService",
+          "desc": "POST /api/restart",
+          "in": [],
+          "out": []
+        },
+        {
+          "id": "route",
+          "file": "index.js",
+          "symbol": "POST /api/restart",
+          "desc": "server.close 后 spawn 新 node 进程并 exit",
+          "in": [],
+          "out": [
+            "新进程"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "req",
+          "to": "api",
+          "kind": "call"
+        },
+        {
+          "from": "api",
+          "to": "route",
+          "kind": "http",
+          "label": "POST /api/restart"
+        }
+      ]
+    },
+    {
+      "id": "terminal.ws",
+      "kind": "duplex",
+      "group": "系统",
+      "groupHint": "right",
+      "label": "终端 (WS)",
+      "at": "index.html#terminalPanel",
+      "desc": "WebSocket 全双工终端，独立于 HTTP 路由，升级时复用 Basic Auth。",
+      "steps": [
+        {
+          "id": "open",
+          "file": "public/terminal.js",
+          "symbol": "Terminal.open",
+          "desc": "建立 WS 连接，双向流转 IO",
+          "in": [
+            "auth"
+          ],
+          "out": [
+            "term"
+          ]
+        },
+        {
+          "id": "up",
+          "file": "index.js",
+          "symbol": "server upgrade /api/terminal",
+          "desc": "校验 Basic Auth（header 或 ?auth=），handleUpgrade",
+          "in": [
+            "request"
+          ],
+          "out": [
+            "ws"
+          ]
+        },
+        {
+          "id": "conn",
+          "file": "terminal.js",
+          "symbol": "handleConnection",
+          "desc": "绑定 pty，双向转发",
+          "in": [
+            "ws"
+          ],
+          "out": [
+            "stdin/stdout"
+          ]
+        }
+      ],
+      "edges": [
+        {
+          "from": "open",
+          "to": "up",
+          "kind": "ws",
+          "label": "WS upgrade"
+        },
+        {
+          "from": "up",
+          "to": "conn",
+          "kind": "call"
+        }
+      ]
+    }
+  ]
+}

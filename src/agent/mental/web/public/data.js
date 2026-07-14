@@ -77,6 +77,10 @@ export const Data = {
     cache.tools = await get('/api/tools?instance=' + encodeURIComponent(instance));
     return cache.tools;
   },
+  async fetchAgentConfig(name) { return get('/api/agent/config?name=' + encodeURIComponent(name)); },
+  async fetchAgentTools(name) { return get('/api/tools?agent=' + encodeURIComponent(name)); },
+  async fetchAgentModel(name) { return get('/api/model?agent=' + encodeURIComponent(name)); },
+  async fetchAgentModelPresets(name) { return get('/api/model-presets?agent=' + encodeURIComponent(name)); },
 
   async fetchModel(instance) {
     return get('/api/model?instance=' + encodeURIComponent(instance));
@@ -106,6 +110,14 @@ export const Data = {
     return get('/api/events?instance=' + encodeURIComponent(instance));
   },
 
+  async fetchFiles(dirPath) {
+    return get('/api/files?path=' + encodeURIComponent(dirPath || '.'));
+  },
+
+  async fetchFile(filePath) {
+    return get('/api/file?path=' + encodeURIComponent(filePath));
+  },
+
   // —— 写入 ——
 
   async saveMental(name, suffix, content) {
@@ -125,6 +137,8 @@ export const Data = {
   async saveModel(instance, config, preset) {
     return post('/api/model', { instance, config, preset });
   },
+  async saveAgentModel(agent, config, preset) { return post('/api/model', { agent, config, preset }); },
+  async saveAgentFile(agent, suffix, content) { return post('/api/self-save', { agent, suffix, content }); },
 
   async sendEvent(instance, content) {
     return post('/api/events?instance=' + encodeURIComponent(instance), { content });
@@ -132,6 +146,10 @@ export const Data = {
 
   async retryEvent(instance) {
     return post('/api/events?instance=' + encodeURIComponent(instance), { retry: true });
+  },
+
+  async continueLoop(instance) {
+    return post('/api/events?instance=' + encodeURIComponent(instance), {});
   },
 
   async createInstance(name) {
@@ -172,5 +190,22 @@ export const Data = {
 
   async restartService() {
     return post('/api/restart');
-  }
+  },
+
+  // —— 分组（context）——
+  // 分组对话即普通实例，事件/模型/tools/self 全部复用实例 API（source.js 统一走 instance 源）
+  async fetchGroups() { return get('/api/ctx/tree'); },
+  async createGroup(name, parent) { return post('/api/ctx/group', { name, parent }); },
+  async deleteGroup(name) { return del('/api/ctx/group', { name }); },
+  async createSystem(name, parent) { return post('/api/ctx/system', { name, parent }); },
+  async deleteSystem(name) { return del('/api/ctx/system', { name }); },
+  async fetchSystemFiles(name) { return get('/api/ctx/system/files?name=' + encodeURIComponent(name)); },
+  async fetchGroupWiki(name) { return get('/api/ctx/wiki?name=' + encodeURIComponent(name)); },
+  async saveGroupWiki(name, content) { return post('/api/ctx/wiki', { name, content }); },
+  async createGroupChat(parent, chat) { return post('/api/ctx/chat-create', { parent, chat }); },
+  async createAgent(name, parent) { return post('/api/agent', { name, parent }); },
+  async deleteAgent(name) { return del('/api/agent', { name }); },
+  async createAgentChat(parent, name) { return post('/api/agent/chat', { parent, name }); },
+  async moveNode(type, name, parent) { return post('/api/ctx/move', { type, name, parent }); },
+
 };

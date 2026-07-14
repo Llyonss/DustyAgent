@@ -1,12 +1,12 @@
-require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '../../../.env') });
 
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
-const { readEvents, writeEvent } = require('../core/event');
-const { loop } = require('../core/loop');
-const createDefaultAgent = require('../agent/default');
-const createDocAgent = require('../agent/doc');
+const { readEvents, writeEvent } = require('../../core/event');
+const { loop } = require('../../core/loop');
+const createDefaultAgent = require('../default');
+const createDocAgent = require('../doc');
 
 function createAgent(instanceDir) {
   if (fs.existsSync(path.join(instanceDir, 'doc.md'))) {
@@ -15,7 +15,7 @@ function createAgent(instanceDir) {
   return createDefaultAgent(instanceDir);
 }
 
-const instancesRoot = path.join(__dirname, '../../instances');
+const instancesRoot = path.join(__dirname, '../../../instances');
 
 const loops = new Map();
 
@@ -175,7 +175,7 @@ app.delete('/api/loop', async (req, res) => {
 // Model presets
 app.get('/api/model-presets', (req, res) => {
   const { instanceDir } = resolve(req.query.instance);
-  const presetsPath = path.join(__dirname, '../../model-presets.json');
+  const presetsPath = path.join(__dirname, '../../../model-presets.json');
   let presets = {};
   let current = null;
   try {
@@ -194,7 +194,7 @@ app.post('/api/model', (req, res) => {
   ensureDirs({ eventsDir });
   const { preset } = req.body;
   if (!preset) return res.status(400).json({ error: 'preset required' });
-  const presetsPath = path.join(__dirname, '../../model-presets.json');
+  const presetsPath = path.join(__dirname, '../../../model-presets.json');
   try {
     const presets = JSON.parse(fs.readFileSync(presetsPath, 'utf-8'));
     const config = presets[preset];

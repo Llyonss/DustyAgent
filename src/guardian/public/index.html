@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guardian — Dusty14 守护进程</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0a0e14;
+    --panel: #11161e;
+    --panel2: #161b25;
+    --border: #1e2530;
+    --border2: #2a3441;
+    --text: #c9d1d9;
+    --text-dim: #6b7785;
+    --accent: #3b82f6;
+    --accent2: #1d4ed8;
+    --green: #22c55e;
+    --green-bg: rgba(34,197,94,.1);
+    --red: #ef4444;
+    --red-bg: rgba(239,68,68,.1);
+    --yellow: #eab308;
+    --yellow-bg: rgba(234,179,8,.1);
+    --mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+
+  /* Header */
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .header h1 { font-size: 22px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .header h1 .icon { font-size: 24px; }
+  .header .ver { font-size: 12px; color: var(--text-dim); font-family: var(--mono); }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+  /* Status cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .card .label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+  .card .value { font-size: 18px; font-weight: 600; }
+  .card .sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; font-family: var(--mono); }
+  .card .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+  .badge-on { background: var(--green-bg); color: var(--green); }
+  .badge-off { background: var(--red-bg); color: var(--red); }
+  .badge-warn { background: var(--yellow-bg); color: var(--yellow); }
+
+  /* Actions */
+  .actions { display: flex; gap: 10px; margin-bottom: 20px; }
+  .btn {
+    flex: 1;
+    padding: 11px 16px;
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    background: var(--panel2);
+    color: var(--text);
+    transition: all .15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .btn:hover { background: var(--border2); border-color: #3a4452; }
+  .btn:active { transform: scale(.98); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-start { background: #162620; border-color: #1a3c2e; color: var(--green); }
+  .btn-start:hover { background: #1a3c2e; }
+  .btn-restart { background: #1e1c14; border-color: #3a3320; color: var(--yellow); }
+  .btn-restart:hover { background: #3a3320; }
+  .btn-stop { background: #261616; border-color: #3c1a1a; color: var(--red); }
+  .btn-stop:hover { background: #3c1a1a; }
+
+  /* Log viewer */
+  .log-section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .log-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    background: var(--panel2);
+  }
+  .log-header .title { font-size: 13px; font-weight: 600; color: var(--text-dim); }
+  .log-controls { display: flex; align-items: center; gap: 10px; }
+  .log-controls label { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .log-controls input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+  .log-controls select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border2);
+    border-radius: 4px; padding: 3px 6px; font-size: 12px; cursor: pointer;
+  }
+  .log-area {
+    padding: 12px 16px;
+    height: 360px;
+    overflow-y: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .log-line { padding: 1px 0; }
+  .log-line .ts { color: var(--text-dim); }
+  .log-line .lvl-info { color: #58a6ff; }
+  .log-line .lvl-warn { color: var(--yellow); }
+  .log-line .lvl-error { color: var(--red); }
+  .log-line .lvl-mental { color: #8b949e; }
+  .log-line .lvl-mental\\:err { color: #f97583; }
+
+  /* Footer */
+  .footer { margin-top: 20px; display: flex; justify-content: space-between; align-items: center; }
+  .footer a { color: var(--accent); font-size: 13px; text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+
+  /* Toast */
+  .toast {
+    position: fixed; top: 20px; right: 20px; padding: 10px 18px;
+    border-radius: 8px; font-size: 14px; z-index: 999;
+    opacity: 0; transform: translateY(-10px); transition: all .25s;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.ok { background: #162620; border: 1px solid #1a3c2e; color: var(--green); }
+  .toast.err { background: #261616; border: 1px solid #3c1a1a; color: var(--red); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a4452; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1><span class="icon">🛡️</span> Guardian <span class="ver">v1.0</span></h1>
+    <div class="header-right">
+      <span id="liveDot" class="pulse-dot"></span>
+      <span style="font-size:12px;color:var(--text-dim)">实时</span>
+    </div>
+  </div>
+
+  <!-- Status cards -->
+  <div class="cards">
+    <div class="card">
+      <div class="label">Mental 服务</div>
+      <div class="value"><span id="mentalBadge" class="badge badge-off">● 检查中</span></div>
+      <div class="sub" id="mentalSub">PID: —</div>
+    </div>
+    <div class="card">
+      <div class="label">运行时长</div>
+      <div class="value" id="uptime">—</div>
+      <div class="sub" id="guardianSub">Guardian: —</div>
+    </div>
+    <div class="card">
+      <div class="label">重启次数</div>
+      <div class="value" id="restartCount">0</div>
+      <div class="sub" id="autoRestart">自动重启: 关闭</div>
+    </div>
+    <div class="card">
+      <div class="label">SSH 隧道</div>
+      <div class="value"><span id="tunnelBadge" class="badge badge-off">● 未连接</span></div>
+      <div class="sub" id="tunnelSub">远端 :9090</div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="btn btn-start" id="btnStart">▶ 启动</button>
+    <button class="btn btn-restart" id="btnRestart">↻ 重启</button>
+    <button class="btn btn-stop" id="btnStop">⏹ 停止</button>
+  </div>
+
+  <!-- Log viewer -->
+  <div class="log-section">
+    <div class="log-header">
+      <span class="title">📋 Mental 日志</span>
+      <div class="log-controls">
+        <label><input type="checkbox" id="autoScroll" checked> 自动滚动</label>
+        <select id="logFilter">
+          <option value="all">全部</option>
+          <option value="mental">Mental 输出</option>
+          <option value="guardian">Guardian 日志</option>
+          <option value="error">仅错误</option>
+        </select>
+      </div>
+    </div>
+    <div class="log-area" id="logs">
+      <div style="color:var(--text-dim);text-align:center;padding-top:120px">加载中...</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <a href="/" target="_blank">→ 打开 Dusty14 主界面</a>
+    <span style="font-size:12px;color:var(--text-dim)" id="lastUpdate">—</span>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const auth = btoa('dusty:dusty4ever');
+
+function fmtUptime(sec) {
+  if (!sec) return '—';
+  if (sec < 60) return sec + 's';
+  const m = Math.floor(sec / 60);
+  if (m < 60) return m + 'm ' + (sec % 60) + 's';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ' + (m % 60) + 'm';
+  return Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
+}
+
+let logsAll = [];
+let lastLogCount = 0;
+
+async function fetchStatus() {
+  try {
+    const r = await fetch('/guardian/api/status', { headers: { Authorization: 'Basic ' + auth }});
+    const s = await r.json();
+
+    // Mental badge
+    const mb = document.getElementById('mentalBadge');
+    if (s.mental.running) { mb.className = 'badge badge-on'; mb.textContent = '● 运行中'; }
+    else { mb.className = 'badge badge-off'; mb.textContent = '● 已停止'; }
+    document.getElementById('mentalSub').textContent = 'PID: ' + (s.mental.pid || '—');
+
+    // Uptime
+    document.getElementById('uptime').textContent = fmtUptime(s.mental.uptime);
+    document.getElementById('guardianSub').textContent = 'Guardian: ' + fmtUptime(s.guardian.uptime);
+
+    // Restart count
+    document.getElementById('restartCount').textContent = s.mental.restartCount || 0;
+    document.getElementById('autoRestart').textContent = '自动重启: ' + (s.mental.autoRestart ? '✅ 开启' : '❌ 关闭');
+
+    // Tunnel badge
+    const tb = document.getElementById('tunnelBadge');
+    if (s.guardian.tunnelActive) { tb.className = 'badge badge-on'; tb.textContent = '● 已连接'; }
+    else { tb.className = 'badge badge-off'; tb.textContent = '● 未连接'; }
+    document.getElementById('tunnelSub').textContent = '远端 :' + s.guardian.tunnelRemotePort;
+
+    // Button states
+    document.getElementById('btnStart').disabled = s.mental.running;
+    document.getElementById('btnStop').disabled = !s.mental.running;
+    document.getElementById('btnRestart').disabled = false;
+
+    // Last error
+    if (s.mental.lastError) {
+      document.getElementById('mentalSub').textContent += ' | err: ' + s.mental.lastError.substring(0, 40);
+    }
+
+    document.getElementById('lastUpdate').textContent = '更新于 ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById('liveDot').style.background = 'var(--red)';
+  }
+}
+
+async function fetchLogs() {
+  try {
+    const r = await fetch('/guardian/api/mental/logs?limit=200', { headers: { Authorization: 'Basic ' + auth }});
+    const j = await r.json();
+    logsAll = j.logs || [];
+    renderLogs();
+  } catch (e) {}
+}
+
+function renderLogs() {
+  const filter = document.getElementById('logFilter').value;
+  let lines = logsAll;
+
+  if (filter === 'mental') lines = lines.filter(l => l.includes('[mental]'));
+  else if (filter === 'guardian') lines = lines.filter(l => !l.includes('[mental]'));
+  else if (filter === 'error') lines = lines.filter(l => l.includes('[error]') || l.includes('[warn]'));
+
+  const html = lines.map(l => {
+    // Format: [ts] [level] msg
+    const m = l.match(/^\[([^\]]+)\] \[([^\]]+)\] (.*)$/);
+    if (!m) return '<div class="log-line">' + escHtml(l) + '</div>';
+    const ts = m[1].substring(11, 19);
+    const lvl = m[2];
+    const cls = 'lvl-' + lvl.replace(/[^a-z:]/g, '');
+    return '<div class="log-line"><span class="ts">' + ts + '</span> <span class="' + cls + '">[' + lvl + ']</span> ' + escHtml(m[3]) + '</div>';
+  }).join('\n');
+
+  const el = document.getElementById('logs');
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.innerHTML = html;
+  if (document.getElementById('autoScroll').checked && atBottom) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function action(cmd) {
+  const btn = document.getElementById('btn' + cmd.charAt(0).toUpperCase() + cmd.slice(1));
+  if (btn) { btn.disabled = true; btn.textContent = '处理中...'; }
+  try {
+    const r = await fetch('/guardian/api/mental/' + cmd, { method: 'POST', headers: { Authorization: 'Basic ' + auth }});
+    const j = await r.json();
+    toast(cmd + (j.ok !== false ? ' ✓' : ' ✗'), j.ok !== false ? 'ok' : 'err');
+  } catch (e) {
+    toast('请求失败: ' + e.message, 'err');
+  }
+  await fetchStatus();
+  await fetchLogs();
+  // Restore button text
+  const texts = { start: '▶ 启动', restart: '↻ 重启', stop: '⏹ 停止' };
+  if (btn) btn.textContent = texts[cmd];
+}
+
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast ' + type;
+  requestAnimationFrame(() => el.classList.add('show'));
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// Event listeners
+document.getElementById('btnStart').addEventListener('click', () => action('start'));
+document.getElementById('btnRestart').addEventListener('click', () => action('restart'));
+document.getElementById('btnStop').addEventListener('click', () => action('stop'));
+document.getElementById('logFilter').addEventListener('change', renderLogs);
+
+// Init
+fetchStatus();
+fetchLogs();
+setInterval(fetchStatus, 5000);
+setInterval(fetchLogs, 3000);
+</script>
+</body>
+</html>

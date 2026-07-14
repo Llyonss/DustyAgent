@@ -1,10 +1,57 @@
-*{margin:0;padding:0;box-sizing:border-box}
+﻿*{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0e0e10;color:#c8c8d0;height:100vh;height:100dvh;display:flex;overflow:hidden}
 
-/* ── 左栏：对话 45% ── */
-#chatPanel{width:45%;display:flex;flex-direction:column;min-width:0;border-right:1px solid #2a2a30}
-.chat-header{padding:8px 12px;border-bottom:1px solid #2a2a30;display:flex;justify-content:space-between;align-items:center;background:#121216;flex-shrink:0}
-.header-left,.header-right{display:flex;align-items:center;gap:6px}
+/* ── 最左：会话导航栏 ── */
+#navPanel{width:240px;flex-shrink:0;display:flex;flex-direction:column;background:#0c0c10;border-right:1px solid #2a2a30;min-width:0}
+#navPanel.nav-collapsed{display:none}
+.nav-header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #1e1e24;flex-shrink:0}
+.nav-title{flex:1;font-size:13px;font-weight:600;color:#d0d0d8}
+.nav-tree{flex:1;overflow-y:auto;padding:4px 0}
+.nav-root-drop{margin:2px 8px 5px;padding:4px 8px;border:1px dashed #2a2a30;border-radius:4px;color:#666;font-size:11px;text-align:center}
+.nav-root-drop.drag-over,.nav-row.drag-over{background:#26263a;outline:1px solid #7c6fe0;color:#fff}
+.nav-sec{font-size:11px;color:#666;padding:8px 12px 3px;font-weight:600;letter-spacing:.5px}
+.nav-sub-empty{color:#555;font-size:12px;padding:4px 12px 4px 34px}
+.nav-row{display:flex;align-items:center;gap:3px;padding:4px 8px;cursor:pointer;font-size:13px;color:#c8c8d0;user-select:none}
+.nav-row:hover{background:#17171f}
+/* 缩进按深度 --d 计算：每层 14px，基础 8px */
+.nav-row{padding-left:calc(8px + var(--d,0) * 14px)}
+.nav-caret{width:12px;flex-shrink:0;text-align:center;color:#888;font-size:10px}
+.nav-group>.nav-name{font-weight:500}
+.nav-chat.missing{opacity:.5;cursor:default}
+.nav-system-entry{padding:3px 8px 3px calc(8px + var(--d,1) * 14px);font-size:12px;color:#90909a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-system-file{cursor:pointer}.nav-system-file:hover{background:#17171f;color:#d0d0d8}
+.nav-caret-dot{color:#555}
+.nav-row.active{background:#26263a;color:#fff}
+.nav-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-acts{display:flex;gap:2px;flex-shrink:0}
+.nav-act{width:20px;height:20px;line-height:20px;text-align:center;border-radius:4px;font-size:11px;color:#999}
+.nav-act:hover{background:#33334a;color:#fff}
+.cur-session{font-size:12px;color:#9a9aa8;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session-link{cursor:pointer;color:#b0a8e0;border-radius:3px;padding:1px 3px;transition:background .15s}
+.session-link:hover{background:#2a2a3a;color:#d0c8f0}
+.session-sep{color:#555}
+.session-chat{color:#9a9aa8}
+
+/* ── 中栏：对话 ── */
+#chatPanel{flex:1 1 0;display:flex;flex-direction:column;min-width:0;border-right:1px solid #2a2a30}
+.chat-header{padding:6px 10px;border-bottom:1px solid #2a2a30;display:flex;justify-content:space-between;align-items:center;background:#121216;flex-shrink:0;gap:8px}
+.header-left{display:flex;align-items:center;gap:6px;min-width:0;flex:1}
+.header-right{display:flex;align-items:center;gap:2px;flex-shrink:0}
+/* PC 端：右侧按钮隐藏文字标签，只显示图标 */
+@media(min-width:769px){
+  .header-right .btn-text{padding:4px 5px;font-size:12px}
+  .header-right .btn-label{display:none}
+}
+
+/* 项目文档编辑器 */
+#docEditorOverlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1001;display:flex;align-items:center;justify-content:center}
+#docEditorOverlay.hidden{display:none}
+#docEditor{width:min(820px,92vw);height:min(80vh,720px);background:#111116;border:1px solid #2a2a30;border-radius:8px;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.5)}
+.de-header{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #2a2a30}
+.de-title{flex:1;font-size:13px;font-weight:600;color:#d0d0d8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.de-saved{font-size:12px;color:#6ec06e}
+.de-saved.hidden{display:none}
+#docEditorText{flex:1;margin:0;border:0;outline:0;background:#0d0d12;color:#c8c8d0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;padding:14px;resize:none;border-radius:0 0 8px 8px}
 .header-left select{background:#1a1a1e;color:#c8c8d0;border:1px solid #333;padding:4px 8px;border-radius:4px;font-size:12px}
 
 /* ── LLM 预设选择器（chat-header 内） ── */
@@ -151,6 +198,17 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0e0e10;color:#c8c8d
 .branch-overview-tag{display:inline-block;padding:1px 7px;border-radius:8px;font-size:10px;color:#999;background:#1a1a22;border:1px solid #2a2a30;cursor:pointer;transition:color .15s,background .15s}
 .branch-overview-tag:hover{color:#c8c8d0;background:#22222c;border-color:#444}
 
+/* 配置弹窗 */
+.config-modal{max-width:640px;width:92%}
+.config-file-editor{display:flex;flex-direction:column;gap:8px;min-height:420px}
+.config-file-editor.hidden{display:none}
+.config-file-editor-title{font-size:12px;color:#7c6fe0;font-weight:600}
+#configFileEditorText{flex:1;min-height:340px;resize:vertical;background:#101016;color:#d0d0d8;border:1px solid #30303a;border-radius:4px;padding:10px;font:12px/1.55 Consolas,monospace;outline:none}
+#configFileEditorText:focus{border-color:#7c6fe0}
+.config-body{max-height:70vh;overflow-y:auto;padding:0}
+.config-body #modelSection,.config-body #systemPromptSection,.config-body #toolsSection{margin:0;border:none;border-bottom:1px solid #2a2a30;border-radius:0}
+.config-body #modelSection:last-child,.config-body #systemPromptSection:last-child,.config-body #toolsSection:last-child{border-bottom:none}
+
 /* 分支树弹窗 */
 .branch-tree-modal{max-width:420px;width:90%}
 .branch-tree-item{display:flex;align-items:center;gap:4px;padding:3px 0;font-size:12px;cursor:pointer;border-radius:4px;transition:background .1s}
@@ -211,10 +269,14 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0e0e10;color:#c8c8d
 .chat-input button:hover{background:#6b5fd0}
 #stopBtn{background:#e0af68;color:#0f0f0f}
 #stopBtn:hover{background:#edc07a}
+#continueBtn{background:#3a7a5a;color:#fff}
+#continueBtn:hover{background:#4a8a6a}
+#continueBtn.retry{background:#a04040}
+#continueBtn.retry:hover{background:#c05050}
 .hidden{display:none!important}
 
 /* ── 右栏：心智面板 55% ── */
-#mentalPanel{width:55%;display:flex;flex-shrink:0;background:#121216}
+#mentalPanel{flex:1.3 1 0;display:flex;min-width:0;background:#121216}
 
 /* 侧边目录 */
 .mental-sidebar{width:180px;border-right:1px solid #1e1e24;display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0}
@@ -226,6 +288,30 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0e0e10;color:#c8c8d
 .tree-item{padding:4px 8px;font-size:12px;color:#999;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tree-item:hover{background:#1a1a22;color:#c8c8d0}
 .tree-icon{color:#555;font-size:10px}
+
+/* ── 统一目录树 ── */
+#unifiedTree{flex:1;overflow-y:auto;padding:2px 0}
+.ut-section{border-bottom:1px solid #1a1a1e}
+.ut-header{padding:6px 10px;font-size:12px;font-weight:600;color:#c8c8d0;cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between}
+.ut-header:hover{background:#1a1a22}
+.ut-toggle{color:#888;font-size:14px;font-weight:400;line-height:1;width:16px;text-align:center;flex-shrink:0}
+.ut-caret{width:12px;flex-shrink:0;color:#888;font-size:9px;text-align:center}
+.ut-body.ut-collapsed{display:none}
+.ut-item{padding:3px 10px;font-size:12px;color:#999;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ut-item:hover{background:#1a1a22;color:#c8c8d0}
+.ut-empty{color:#555;font-size:11px;padding:4px 10px}
+.ut-loading{color:#555;font-size:11px;padding:4px 10px}
+.ut-num{color:#7c6fe0;font-size:10px;margin-right:2px}
+.ut-dir{color:#b0a8e0}
+.ut-dir:hover{color:#d0c8f0}
+.ut-file{color:#999}
+.ut-dir-children{}
+.ut-header-act{color:#888;font-size:14px;cursor:pointer;padding:0 4px;line-height:1;border-radius:3px}
+.ut-header-act:hover{color:#c8c8d0;background:#2a2a3a}
+.ut-active{color:#c8c8d0!important;background:#1a1a2e}
+.ut-item-del{color:#555;font-size:14px;cursor:pointer;padding:0 3px;line-height:1;border-radius:3px;margin-left:auto;flex-shrink:0}
+.ut-item-del:hover{color:#e05050;background:#e0505020}
+.ut-item{display:flex;align-items:center;gap:2px}
 
 /* 主区域 */
 .mental-main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
@@ -398,6 +484,42 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0e0e10;color:#c8c8d
 /* 故事视图 */
 #storyView{flex:1;display:flex;flex-direction:column;overflow:hidden}
 #storyView.hidden{display:none}
+
+/* 文件视图 */
+#fileView{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#fileView.hidden{display:none}
+#filePath{font-size:13px;font-weight:600;color:#e0e0e8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 40px)}
+#termPane{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#termPane.hidden{display:none}
+#termPaneBody{flex:1;overflow:hidden}
+#fileScroll{flex:1;overflow-y:auto;padding:12px;font-size:13px;line-height:1.6}
+#fileTree.hidden{display:none}
+.sidebar-header-actions{display:flex;gap:2px}
+.file-tree-dir{color:#c8c8d0;font-weight:500}
+.file-tree-dir:hover{color:#e0e0e8}
+.file-tree-file{color:#888}
+.file-tree-file:hover{color:#c8c8d0}
+.file-tree-active{background:#1a1a2e!important;color:#7c6fe0!important}
+.file-tree-children{}
+.file-image{max-width:100%;border-radius:8px;border:1px solid #2a2a30}
+.file-code{background:#0e0e12;color:#c8c8d0;padding:12px;border-radius:6px;overflow-x:auto;font-family:'Cascadia Code','Consolas',monospace;font-size:12px;line-height:1.5;white-space:pre;tab-size:2}
+
+#fileBody h1,#fileBody h2,#fileBody h3{color:#e0e0e8;margin:10px 0 4px}
+#fileBody h1{font-size:16px}#fileBody h2{font-size:14px}#fileBody h3{font-size:13px}
+#fileBody p{margin:4px 0}#fileBody code{background:#1a1a20;padding:1px 4px;border-radius:3px;font-size:12px}
+#fileBody pre{background:#1a1a20;padding:8px;border-radius:4px;overflow-x:auto;margin:6px 0}
+#fileBody pre code{background:none;padding:0}
+#fileBody ul,#fileBody ol{padding-left:18px;margin:4px 0}
+#fileBody table{border-collapse:collapse;font-size:12px;margin:6px 0}
+#fileBody th,#fileBody td{border:1px solid #333;padding:3px 8px}
+#fileBody blockquote{border-left:2px solid #555;padding-left:8px;color:#999;margin:4px 0}
+#fileBody a{color:#7c9fd4}
+
+/* 文件右键菜单 */
+.file-ctx-menu{position:fixed;z-index:1000;background:#1a1a22;border:1px solid #3a3a44;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.5);overflow:hidden;min-width:160px}
+.file-ctx-menu.hidden{display:none}
+.file-ctx-item{display:block;width:100%;padding:8px 14px;background:none;border:none;color:#c8c8d0;font-size:12px;cursor:pointer;text-align:left;font-family:inherit}
+.file-ctx-item:hover{background:#2a2a34}
 #storyScroll{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:6px}
 #storyTitle{font-size:14px;font-weight:600;color:#e0e0e8}
 .story-detail-story{font-size:13px;line-height:1.6;color:#c8c8d0;padding:8px 0;border-bottom:1px solid #1e1e24;margin-bottom:8px}
@@ -452,7 +574,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0e0e10;color:#c8c8d
 
 /* ── Mobile ── */
 @media(max-width:768px){
-  body{flex-direction:column}
+  body{flex-direction:column;position:fixed;inset:0;height:100dvh}
 
   /* Tab 栏 */
   .mobile-tabs{display:flex;flex-shrink:0;border-bottom:1px solid #2a2a30;background:#121216}
@@ -460,6 +582,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0e0e10;color:#c8c8d
   .mobile-tab.active{color:#7c6fe0;border-bottom-color:#7c6fe0}
 
   /* 两栏 → 单栏 */
+  #navPanel{width:100%;flex:1;display:none;border-right:none;min-height:0}
+  #navPanel.mobile-show{display:flex}
+  #navPanel.nav-collapsed{display:none}
   #chatPanel{width:100%;flex:1;border-right:none;min-height:0}
   #chatPanel.mobile-hidden{display:none!important}
   #mentalPanel{width:100%;flex:1;display:none;position:relative;min-height:0}
@@ -477,21 +602,24 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0e0e10;color:#c8c8d
   .mental-mobile-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #1e1e24;background:#121216;flex-shrink:0}
   .mental-mobile-title{font-size:13px;color:#c8c8d0;font-weight:500}
 
-  /* ── 移动端顶栏精简 ── */
-  .chat-header{padding:8px 10px;gap:4px}
-  .header-left,.header-right{gap:3px}
+  /* ── 移动端顶栏：两行，可换行 ── */
+  .chat-header{flex-wrap:wrap;padding:6px 8px;gap:4px;row-gap:2px}
+  .header-left{flex:1 1 auto;min-width:0;gap:2px}
+  .header-right{flex:0 0 auto;gap:2px}
   .header-left select{font-size:11px;padding:3px 6px;max-width:80px}
+  /* 会话标签占整行 */
+  .cur-session{max-width:100%;font-size:11px}
   /* 预设选择器缩短 */
   .preset-trigger{padding:3px 6px;font-size:10px;gap:2px}
   #presetLabel{max-width:50px;overflow:hidden;text-overflow:ellipsis}
   /* 按钮去文字留图标 */
-  .header-right .btn-text{padding:4px 6px;font-size:15px;line-height:1}
+  .header-right .btn-text{padding:3px 5px;font-size:14px;line-height:1}
   .header-right .btn-label{display:none}
   /* 用量指示器只留色点 */
-  .usage-indicator{padding:4px 6px;border-radius:50%;min-width:20px;justify-content:center}
+  .usage-indicator{padding:3px 5px;border-radius:50%;min-width:18px;justify-content:center}
   .usage-indicator .usage-text{display:none}
   /* 实例操作按钮紧凑 */
-  .header-left .btn-icon{width:24px;height:24px;font-size:12px}
+  .header-left .btn-icon{width:22px;height:22px;font-size:12px}
 
   /* 消息气泡宽度放宽 */
   .msg-user{max-width:85%}

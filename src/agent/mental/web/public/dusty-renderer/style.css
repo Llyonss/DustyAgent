@@ -1,0 +1,78 @@
+/* ── Dusty Renderer: 数据流可视化 ── */
+
+/* raw 代码块 */
+.dusty-raw {
+  background: #0e0e12; color: #c8c8d0; padding: 12px; border-radius: 6px;
+  overflow-x: auto; font-family: 'Cascadia Code','Consolas',monospace;
+  font-size: 12px; line-height: 1.5; white-space: pre; tab-size: 2; margin: 4px 0;
+}
+
+/* 数据流图容器 */
+.df-wrapper {
+  position: relative; margin: 8px 0; background: #0c0c16;
+  border: 1px solid #1e1e2e; border-radius: 10px; overflow: auto;
+}
+.df-stats {
+  padding: 5px 12px; font-size: 11px; color: #555;
+  border-bottom: 1px solid #161622;
+  font-family: system-ui; letter-spacing: 0.3px;
+  display: flex; gap: 14px;
+}
+.df-stats::before { content: '📊'; font-size: 12px; }
+.df-container { position: relative; }
+.df-svg { display: block; touch-action: none; }
+
+/* 节点 */
+.df-node-rect { transition: filter 0.2s, stroke 0.2s; cursor: pointer; }
+.df-node-rect:hover { filter: brightness(1.8) drop-shadow(0 0 6px rgba(100,160,255,0.3)); }
+.df-node-rect.df-hl { filter: brightness(2) drop-shadow(0 0 8px rgba(233,69,96,0.4)); }
+.df-node-text { pointer-events: none; }
+
+/* 端口 */
+.df-port { cursor: crosshair; transition: r 0.15s; }
+.df-port:hover { r: 7; }
+.df-port.df-hl { r: 7; }
+
+/* 边 */
+.df-edge { transition: stroke-width 0.15s, stroke-opacity 0.15s; cursor: pointer; }
+.df-edge:hover { stroke-width: 3.5 !important; stroke-opacity: 0.9 !important; }
+.df-edge.df-hl { stroke-width: 4 !important; stroke-opacity: 1 !important; }
+.df-edge-glow { transition: stroke-opacity 0.15s; }
+.df-edge:hover + .df-edge-glow { stroke-opacity: 0.25 !important; }
+.df-edge.df-hl + .df-edge-glow { stroke-opacity: 0.3 !important; }
+
+/* 容器 */
+.df-container-rect { pointer-events: none; }
+.df-container-label { pointer-events: none; }
+
+/* 工具栏（层级 ± 按钮） */
+.df-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px; border-bottom: 1px solid #161622;
+  font-family: system-ui; font-size: 11px; color: #888;
+}
+.df-toolbar button {
+  width: 22px; height: 22px; line-height: 1; padding: 0;
+  background: #1a1a2a; color: #cdd6e0; border: 1px solid #2a2a3e;
+  border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: 700;
+}
+.df-toolbar button:hover { background: #24243a; border-color: #3a3a52; }
+.df-toolbar button:active { background: #2e2e48; }
+.df-lv-label { min-width: 22px; text-align: center; color: #7c9fe0; font-weight: 700; }
+.df-stats-inline { margin-left: auto; color: #555; letter-spacing: 0.3px; }
+.df-view { position: relative; }
+
+/* 图例提示 */
+.df-legend {
+  position: absolute; bottom: 8px; left: 8px;
+  background: rgba(12,12,22,0.92); padding: 6px 12px; border-radius: 6px;
+  font-size: 10px; color: #666; pointer-events: none; border: 1px solid #1e1e2e;
+}
+
+/* dusty 标记段 */
+.dusty-section { margin: 8px 0; border: 1px dashed #2a2a38; border-radius: 6px; overflow: hidden; }
+.dusty-section-label { padding: 4px 10px; font-size: 11px; color: #7c6fe0; background: #16162a; border-bottom: 1px solid #1e1e28; }
+.dusty-card { border: 1px solid #2a2a38; border-left: 3px solid #7c6fe0; border-radius: 6px; background: #12121e; margin: 4px 0; overflow: hidden; }
+.dusty-card-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; user-select: none; }
+.dusty-card-header:hover { background: #16162a; }
+.dusty-card-body pre { background: #0a0a0e; color: #c8c8d0; padding: 10px; overflow-x: auto; font-family: 'Cascadia Code','Consolas',monospace; font-size: 11px; line-height: 1.5; white-space: pre; tab-size: 2; margin: 0; }

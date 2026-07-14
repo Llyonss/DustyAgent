@@ -15,13 +15,14 @@ async function run(stream, eventsDir, ctrl, tools, signal, turnId) {
   const turn = turnId || Date.now();
   const startedAt = Date.now();
   const errors = [];
-  const blocks = [];          // 本轮模型产出，按块顺序收集（日志自包含的关键）
+  const blocks = [];          // 本轮模型产出，按块顺序收集
   let response = null;
   let request = null;
   let hasToolCalls = false;
   let blockCount = 0;
   const active = new Map();
-  const blockOf = new Map();  // id → blocks 数组里的引用，便于 done 时回填
+  const blockOf = new Map();  // id → blocks 数组里的引用
+  const pendingTools = [];    // { handle, block, name, input } — 流消费完后并行执行
 
   function executable(name) { return tools.some(t => t.name === name); }
 
@@ -33,7 +34,6 @@ async function run(stream, eventsDir, ctrl, tools, signal, turnId) {
       const isExec = executable(evt.tool);
       const handle = beginAction(eventsDir, { turn, tool: evt.tool, toolUseId: evt.id, toInput: isExec });
       active.set(evt.id, handle);
-      // 收集 block：thinking/speak 是文本块，工具是 tool_use 块
       const type = isExec ? 'tool_use' : (evt.tool === 'thinking' ? 'thinking' : 'speak');
       const block = { type };
       if (isExec || evt.tool === 'thinking') block.tool = evt.tool;
@@ -51,9 +51,8 @@ async function run(stream, eventsDir, ctrl, tools, signal, turnId) {
       if (executable(evt.tool)) {
         hasToolCalls = true;
         finishAction(handle, { input: evt.input });
-        const result = await executeTool(evt.tool, evt.input, ctrl, tools, eventsDir);
-        finishAction(handle, { output: result.output, error: result.error || undefined });
-        if (block) { block.input = evt.input; block.output = result.output; if (result.error) block.error = true; }
+        // 不阻塞流：推入队列，流消费完后并行执行
+        pendingTools.push({ handle, block, name: evt.tool, input: evt.input });
       } else {
         const content = evt.output != null ? evt.output : handle.raw;
         finishAction(handle, { output: content });
@@ -91,6 +90,21 @@ async function run(stream, eventsDir, ctrl, tools, signal, turnId) {
       writeEvent(eventsDir, { type: 'error', message: evt.message });
       ctrl.stop();
       continue;
+    }
+  }
+
+  // ═══ 流消费完毕 → 并行执行所有工具 ═══
+  if (pendingTools.length > 0) {
+    const results = await Promise.all(
+      pendingTools.map(async ({ handle, block, name, input }) => {
+        const result = await executeTool(name, input, ctrl, tools, eventsDir);
+        finishAction(handle, { output: result.output, error: result.error || undefined });
+        if (block) { block.input = input; block.output = result.output; if (result.error) block.error = true; }
+        return result;
+      })
+    );
+    for (const r of results) {
+      if (r.error) errors.push(r.output);
     }
   }
 

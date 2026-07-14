@@ -8,7 +8,7 @@ const { WebSocketServer } = require('ws');
 const { readEvents, writeEvent } = require('../../../core/event');
 const { loop } = require('../../../core/loop');
 const createMentalAgent = require('../brain');
-const { handleConnection } = require('./terminal');
+const { handleConnection, listHandler, killHandler } = require('./terminal');
 
 
 const mentalRoot = path.join(__dirname, '../../../../mental');
@@ -49,6 +49,11 @@ function ensureInstance(instanceDir) {
   if (!fs.existsSync(systemMdPath)) {
     const defaultContent = tryRead(DEFAULT_SYSTEM_PATH) || '';
     fs.writeFileSync(systemMdPath, defaultContent, 'utf-8');
+  }
+  // Write default tools.json if not exists (only skill, eye, cmd, file enabled)
+  const toolsJsonPath = path.join(instanceDir, 'tools.json');
+  if (!fs.existsSync(toolsJsonPath)) {
+    fs.writeFileSync(toolsJsonPath, JSON.stringify({ disabled: ['mental', 'commit', 'history', 'task', 'loop', 'image', 'video'] }, null, 2), 'utf-8');
   }
 }
 
@@ -207,7 +212,20 @@ app.delete('/api/events', (req, res) => {
 });
 
 function createHooks(key, instanceDir) {
-  return createMentalAgent(instanceDir);
+  // 顶层实例名（key 首段）用于反查所属分组
+  const chatName = (key || '').split('/')[0];
+  const contextInfo = ctxApi.contextForChat(chatName);
+  const configDir = ctxApi.configDirForChat(chatName);
+  if (!contextInfo) return createMentalAgent(instanceDir, { mentalRoot, configDir });
+  // 分组对话：注入链路 wiki 环境
+  const chainLines = contextInfo.chain.map(c => `  - ${c.name} → ${c.file}`).join('\n');
+  const extraEnv = [
+    `Context: ${contextInfo.chain.map(c => c.name).join(' / ')}`,
+    `Wiki 链（从根逐级继承，外层是长期知识，最内层是本次工作的活文档）:`,
+    chainLines,
+    `用 context 工具读写分组 wiki：context() 读当前分组，context(chain=true) 读整条链路，context(set=...) 写回。把结论/进展写回本组 wiki，下次开局自动读到。`,
+  ].join('\n');
+  return createMentalAgent(instanceDir, { mentalRoot, configDir, extraEnv, contextInfo });
 }
 
 function startLoop(key, instanceDir, hooks) {
@@ -318,7 +336,8 @@ function detectPreset(config, presets) {
 
 app.get('/api/model-presets', (req, res) => {
   const presets = readPresets();
-  const { instanceDir } = resolve(req.query.instance);
+  const chat = (req.query.instance || '').split('/')[0];
+  const instanceDir = req.query.agent ? ctxApi.agentDir(req.query.agent) : ctxApi.configDirForChat(chat);
   let current = null, hasConfig = false;
   try {
     const config = JSON.parse(fs.readFileSync(path.join(instanceDir, 'model.json'), 'utf-8'));
@@ -330,7 +349,7 @@ app.get('/api/model-presets', (req, res) => {
 
 // --- Model config ---
 app.get('/api/model', (req, res) => {
-  const { instanceDir } = resolve(req.query.instance);
+  const instanceDir = req.query.agent ? ctxApi.agentDir(req.query.agent) : ctxApi.configDirForChat((req.query.instance || '').split('/')[0]);
   try {
     const content = fs.readFileSync(path.join(instanceDir, 'model.json'), 'utf-8');
     res.json(JSON.parse(content));
@@ -338,10 +357,17 @@ app.get('/api/model', (req, res) => {
 });
 
 app.post('/api/model', (req, res) => {
-  const { instance, config, preset } = req.body;
-  if (!instance) return res.status(400).json({ error: 'instance required' });
-  const { instanceDir } = resolve(instance);
-  ensureInstance(instanceDir);
+  const { instance, agent, config, preset } = req.body;
+  if (!instance && !agent) return res.status(400).json({ error: 'instance or agent required' });
+  let instanceDir;
+  if (agent) {
+    if (!ctxApi.readAgent(agent)) return res.status(404).json({ error: 'agent not found' });
+    instanceDir = ctxApi.agentDir(agent);
+  } else {
+    const { instanceDir: chatDir } = resolve(instance);
+    ensureInstance(chatDir);
+    instanceDir = ctxApi.configDirForChat(instance.split('/')[0]);
+  }
   try {
     let data = config;
     if (preset) {
@@ -357,19 +383,21 @@ app.post('/api/model', (req, res) => {
 
 // --- Instance data ---
 app.get('/api/instance', (req, res) => {
-  const { instanceDir } = resolve(req.query.name);
+  const { instanceDir: chatDir } = resolve(req.query.name);
+  const instanceDir = ctxApi.configDirForChat((req.query.name || '').split('/')[0]);
   try {
     const systemMd = tryRead(path.join(instanceDir, 'system.md')) ?? '';
     // ENV info (same as system.js appends)
     const os = require('os');
-    const env = `Environment: ${os.platform()}/${os.arch()}, shell: ${os.platform() === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/sh'}, cwd: ${process.cwd()}\nInstance: ${path.basename(instanceDir)}, instanceDir: ${instanceDir}`;
+    const env = `Environment: ${os.platform()}/${os.arch()}, shell: ${os.platform() === 'win32' ? 'cmd.exe' : process.env.SHELL || '/bin/sh'}, cwd: ${process.cwd()}\nInstance: ${path.basename(chatDir)}, instanceDir: ${chatDir}` + (instanceDir !== chatDir ? `\nAgent: ${path.basename(instanceDir)}, agentDir: ${instanceDir}` : '');
     res.json({ systemMd, env });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // --- Tools ---
 app.get('/api/tools', (req, res) => {
-  const { instanceDir } = resolve(req.query.instance);
+  const { instanceDir: chatDir } = resolve(req.query.instance);
+  const instanceDir = req.query.agent ? ctxApi.agentDir(req.query.agent) : ctxApi.configDirForChat((req.query.instance || '').split('/')[0]);
   const toolsDir = path.join(instanceDir, 'tools');
   const configPath = path.join(instanceDir, 'tools.json');
 
@@ -377,7 +405,7 @@ app.get('/api/tools', (req, res) => {
   try { config = { disabled: [], overrides: {}, ...JSON.parse(fs.readFileSync(configPath, 'utf-8')) }; } catch {}
 
   const { getBuiltins } = require('../brain');
-  const builtins = getBuiltins(instanceDir).map(t => ({
+  const builtins = getBuiltins(chatDir).map(t => ({
     name: t.name, description: t.description, input_schema: t.input_schema,
   }));
 
@@ -401,13 +429,33 @@ app.get('/api/tools', (req, res) => {
   res.json({ config, builtins, custom });
 });
 
+// --- Agent config ---
+app.get('/api/agent/config', (req, res) => {
+  const agent = ctxApi.readAgent(req.query.name);
+  if (!agent) return res.status(404).json({ error: 'agent not found' });
+  const dir = ctxApi.agentDir(agent.name);
+  res.json({
+    name: agent.name,
+    wiki: tryRead(path.join(dir, 'wiki.md')) || '',
+    systemMd: tryRead(path.join(dir, 'system.md')) || '',
+    listen: tryRead(path.join(dir, 'listen.js')) || '',
+  });
+});
+
 // --- Self save ---
 app.post('/api/self-save', (req, res) => {
-  const { instance, suffix, content } = req.body;
-  if (!instance || !suffix || typeof content !== 'string') return res.status(400).json({ error: 'instance, suffix, content required' });
-  const { instanceDir } = resolve(instance);
+  const { instance, agent, suffix, content } = req.body;
+  if ((!instance && !agent) || !suffix || typeof content !== 'string') return res.status(400).json({ error: 'instance or agent, suffix, content required' });
+  let instanceDir, chatDir;
+  if (agent) {
+    if (!ctxApi.readAgent(agent)) return res.status(404).json({ error: 'agent not found' });
+    instanceDir = ctxApi.agentDir(agent);
+  } else {
+    chatDir = resolve(instance).instanceDir;
+    instanceDir = ctxApi.configDirForChat(instance.split('/')[0]);
+  }
   try {
-    ensureInstance(instanceDir);
+    if (chatDir) ensureInstance(chatDir);
     const filePath = path.join(instanceDir, suffix);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, content.replace(/\r\n/g, '\n'), 'utf-8');
@@ -549,6 +597,56 @@ app.get('/api/mental-stories', (req, res) => {
   } catch { res.json([]); }
 });
 
+// --- File browser ---
+const projectRoot = path.join(__dirname, '../../../..');
+const ignoreDirs = new Set(['node_modules', '.git', '__pycache__', '.dusty', 'dist', 'build', '.next']);
+const imageExts = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'bmp']);
+
+app.get('/api/files', (req, res) => {
+  const relPath = (req.query.path || '.').replace(/\\/g, '/');
+  const absPath = path.resolve(projectRoot, relPath === '.' ? '.' : relPath);
+  if (!absPath.startsWith(projectRoot)) return res.status(403).json({ error: 'access denied' });
+  try {
+    const entries = fs.readdirSync(absPath, { withFileTypes: true })
+      .filter(d => !d.name.startsWith('.') && !ignoreDirs.has(d.name))
+      .map(d => {
+        const fullPath = path.join(absPath, d.name);
+        const isDir = d.isDirectory();
+        const ext = isDir ? '' : path.extname(d.name).slice(1).toLowerCase();
+        let size = 0;
+        try { if (!isDir) size = fs.statSync(fullPath).size; } catch {}
+        const rel = path.relative(projectRoot, fullPath).replace(/\\/g, '/');
+        return { name: d.name, type: isDir ? 'dir' : 'file', ext, size, path: rel, absPath: fullPath };
+      })
+      .sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+    const currentRel = path.relative(projectRoot, absPath).replace(/\\/g, '/') || '.';
+    res.json({ entries, path: currentRel });
+  } catch (e) { res.status(404).json({ error: e.message }); }
+});
+
+app.get('/api/file', (req, res) => {
+  const relPath = (req.query.path || '').replace(/\\/g, '/');
+  if (!relPath || relPath === '.') return res.status(400).json({ error: 'path required' });
+  const absPath = path.resolve(projectRoot, relPath);
+  if (!absPath.startsWith(projectRoot)) return res.status(403).json({ error: 'access denied' });
+  try {
+    const stat = fs.statSync(absPath);
+    if (stat.isDirectory()) return res.status(400).json({ error: 'is directory' });
+    if (stat.size > 2 * 1024 * 1024) return res.status(413).json({ error: 'file too large (max 2MB)' });
+    const ext = path.extname(absPath).slice(1).toLowerCase();
+    if (imageExts.has(ext)) {
+      const b64 = fs.readFileSync(absPath).toString('base64');
+      const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+      return res.json({ content: b64, ext, size: stat.size, binary: true, mime });
+    }
+    const content = fs.readFileSync(absPath, 'utf-8');
+    res.json({ content, ext, size: stat.size, binary: false, absPath });
+  } catch (e) { res.status(404).json({ error: e.message }); }
+});
+
 // --- Screenshot ---
 const { getScreenshot } = require('../../../../scripts/screenshot');
 
@@ -638,6 +736,28 @@ app.get('/api/zenmux/subscription', async (req, res) => {
   }
 });
 
+// --- Group / Agent / Chat 上下文树 ---
+const ctxApi = require('./context')({ app, mentalRoot, loops });
+const agentApi = require('./agent')({ app, ctx: ctxApi, ensureInstance });
+
+// Group 下创建对话；归属只写在 Chat.instance.json。
+app.post('/api/ctx/chat-create', (req, res) => {
+  const parent = ctxApi.safe(req.body.parent || req.body.group);
+  const chat = ctxApi.safe(req.body.chat);
+  if (!ctxApi.container(parent)) return res.status(404).json({ error: 'parent not found' });
+  if (!chat) return res.status(400).json({ error: 'chat required' });
+  const { instanceDir } = resolve(chat);
+  if (fs.existsSync(instanceDir)) return res.status(409).json({ error: 'chat exists' });
+  ensureInstance(instanceDir);
+  fs.writeFileSync(path.join(instanceDir, 'instance.json'), JSON.stringify({ name: chat, parent }, null, 2), 'utf-8');
+  ctxApi.initializeChatWiki(instanceDir, parent);
+  res.json({ ok: true });
+});
+
+// 终端 REST 端点
+app.get('/api/terminal/sessions', listHandler);
+app.post('/api/terminal/kill', killHandler);
+
 let server = null;
 let wss = null;
 if (require.main === module) {
@@ -680,6 +800,8 @@ if (require.main === module) {
 
   wss.on('connection', handleConnection);
 
+  // listen.js 只是系统启动脚本：启动时直接运行一次。
+  agentApi.runListeners();
   server.listen(PORT, '0.0.0.0', () => console.log('Mental Web running at http://0.0.0.0:' + PORT));
 }
 

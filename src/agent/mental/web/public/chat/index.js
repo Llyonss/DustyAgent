@@ -4,6 +4,7 @@
 import { Data } from '../data.js';
 import { Renderer } from '../renderer/index.js';
 import { Instance } from '../instance.js';
+import { Source } from '../source.js';
 
 export const Chat = {
   pollTimer: null,
@@ -34,12 +35,12 @@ export const Chat = {
   async _poll() {
     if (this._polling) return;
     this._polling = true;
-    const inst = localStorage.getItem('mental-instance');
-    if (!inst) { this._polling = false; this._scheduleNext(); return; }
+    const src = Source.get();
+    if (!src || !src.id) { this._polling = false; this._scheduleNext(); return; }
     try {
       const [eventData, branchData] = await Promise.all([
-        Data.pollEvents(inst),
-        Data.fetchBranches(inst).catch(() => [])
+        src.fetchEvents(),
+        src.fetchBranches()
       ]);
       this._pollFails = 0;
       this._branchesCache = branchData;
@@ -47,6 +48,7 @@ export const Chat = {
       document.getElementById('runningIndicator').classList.toggle('hidden', !eventData.running);
       document.getElementById('sendBtn').classList.toggle('hidden', eventData.running);
       document.getElementById('stopBtn').classList.toggle('hidden', !eventData.running);
+      this._updateContinueBtn(eventData.running, eventData.events);
       const json = JSON.stringify({ events: eventData.events, usages: eventData.usages, branches: branchData });
       if (json !== this.lastEventsJson) {
         this._render(eventData.events, eventData.usages, branchData);
@@ -61,6 +63,7 @@ export const Chat = {
         document.getElementById('runningIndicator').classList.add('hidden');
         document.getElementById('sendBtn').classList.remove('hidden');
         document.getElementById('stopBtn').classList.add('hidden');
+        document.getElementById('continueBtn').classList.add('hidden');
       }
     } finally {
       this._polling = false;
@@ -79,7 +82,8 @@ export const Chat = {
     window._doForkBranch = (name, at) => this.forkBranch(name, at);
     window._doSwitchBranch = (key) => this.switchBranch(key);
 
-    const inst = localStorage.getItem('mental-instance') || '';
+    const src = Source.get();
+    const inst = src.mode === 'instance' ? (src.id || '') : '';
     el.innerHTML = Renderer.render(events, {
       interactive: true,
       usages: usages || [],
@@ -115,7 +119,9 @@ export const Chat = {
   _updateBranchOverview() {
     const el = document.getElementById('branchOverview');
     if (!el) return;
-    const inst = localStorage.getItem('mental-instance') || '';
+    const src = Source.get();
+    if (!src.supportsBranch) { el.classList.add('hidden'); return; }
+    const inst = src.id || '';
     const isBranch = inst.includes('/');
     const rootInst = inst.split('/')[0];
     const branchName = isBranch ? inst.split('/').slice(1).join('/') : '';
@@ -254,7 +260,7 @@ export const Chat = {
   },
 
   async switchBranch(key) {
-    localStorage.setItem('mental-instance', key);
+    Source.useInstance(key);
     document.getElementById('chatMessages').innerHTML = '<div class="empty">加载中...</div>';
     this.stopPoll();
     this.lastEventsJson = '';
@@ -263,15 +269,15 @@ export const Chat = {
   },
 
   async send() {
-    const inst = localStorage.getItem('mental-instance');
-    if (!inst) return;
+    const src = Source.get();
+    if (!src || !src.id) return;
     const inp = document.getElementById('chatInput');
     const text = inp.value.trim();
     if (!text) return;
     inp.value = '';
     inp.style.height = 'auto';
     try {
-      await Data.sendEvent(inst, text);
+      await src.sendEvent(text);
     } catch {
       inp.value = text;
       return;
@@ -282,24 +288,68 @@ export const Chat = {
   },
 
   async abort() {
-    const inst = localStorage.getItem('mental-instance');
-    if (!inst) return;
-    await Data.stopLoop(inst);
+    const src = Source.get();
+    if (!src || !src.id) return;
+    await src.stopLoop();
   },
 
   async retry() {
-    const inst = localStorage.getItem('mental-instance');
-    if (!inst) return;
-    await Data.retryEvent(inst);
+    const src = Source.get();
+    if (!src || !src.id) return;
+    await src.retryEvent();
+  },
+
+  _tailState: 'empty',
+
+  _getTailState(events) {
+    if (!events || events.length === 0) return 'empty';
+    const last = events[events.length - 1];
+    if (last.type === 'error') return 'error';
+    if (last.type === 'action') {
+      if (last.tool === 'speak' || last.tool === 'thinking') return 'speak';
+      return 'tool';
+    }
+    return 'other';
+  },
+
+  _updateContinueBtn(running, events) {
+    const btn = document.getElementById('continueBtn');
+    if (!btn) return;
+    if (running) { btn.classList.add('hidden'); return; }
+    const ts = this._getTailState(events);
+    this._tailState = ts;
+    if (ts === 'tool') {
+      btn.textContent = '继续';
+      btn.classList.remove('retry', 'hidden');
+    } else if (ts === 'error') {
+      btn.textContent = '重试';
+      btn.classList.remove('hidden');
+      btn.classList.add('retry');
+    } else {
+      btn.classList.add('hidden');
+    }
+  },
+
+  async continueLoop() {
+    const src = Source.get();
+    if (!src || !src.id) return;
+    if (this._tailState === 'error') {
+      await src.retryEvent();
+    } else {
+      await src.continueLoop();
+    }
+    this._polling = false;
+    this._pollFails = 0;
+    this._poll();
   },
 
   async _deleteTurn(gid) {
-    const inst = localStorage.getItem('mental-instance');
-    if (!inst) return;
+    const src = Source.get();
+    if (!src || !src.id) return;
     const g = Renderer._turnRefs[gid];
     if (!g || !g._files || !g._files.length) return;
     if (!confirm(`删除此 turn 的 ${g._files.length} 个事件？不可撤销。`)) return;
-    await Data.deleteEvents(inst, g._files);
+    await src.deleteEvents(g._files);
     this.lastEventsJson = '';
   },
 

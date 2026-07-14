@@ -1,15 +1,15 @@
-require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '../../../.env') });
 
 const path = require('path');
 const fs = require('fs');
 const readline = require('readline');
-const { readEvents, writeEvent } = require('../core/event');
-const { loop } = require('../core/loop');
-const createDefaultAgent = require('../agent/default');
-const createDocAgent = require('../agent/doc');
+const { readEvents, writeEvent } = require('../../core/event');
+const { loop } = require('../../core/loop');
+const createDefaultAgent = require('../default');
+const createDocAgent = require('../doc');
 
 const instanceName = process.argv[2] || 'default';
-const instanceDir = path.join(__dirname, '../../instances', instanceName);
+const instanceDir = path.join(__dirname, '../../../instances', instanceName);
 const eventsDir = path.join(instanceDir, 'events');
 fs.mkdirSync(eventsDir, { recursive: true });
 

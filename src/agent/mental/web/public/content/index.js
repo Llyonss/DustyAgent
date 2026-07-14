@@ -4,7 +4,7 @@
 import { Data } from '../data.js';
 import { View } from '../view.js';
 import { Graph } from '../graph/index.js';
-import { Tree } from '../graph/tree.js';
+import { UnifiedTree } from '../unified-tree.js';
 import { Self } from './self.js';
 import { Story } from './story.js';
 import { Editor } from './editor.js';
@@ -13,21 +13,17 @@ export const Content = {
   current: null,   // 当前心智名，null='self'表示self页
 
   async select(name) {
-    this.current = name === 'self' ? null : name;
-    View.showContent();
-    View.closeSidebar();
-    Graph.highlight(name === 'self' ? null : name);
-    View.updateMobileTitle(name === 'self' ? '◆ self' : name);
-
     if (name === 'self') {
       await Self.view();
       return;
     }
 
-    // 隐藏self相关区
-    document.getElementById('modelSection').classList.add('hidden');
-    document.getElementById('systemPromptSection').classList.add('hidden');
-    document.getElementById('toolsSection').classList.add('hidden');
+    this.current = name;
+    View.showContent();
+    View.closeSidebar();
+    Graph.highlight(name);
+    View.updateMobileTitle(name);
+
     Editor.reset();
 
     try {
@@ -64,7 +60,7 @@ export const Content = {
       onAfterSave: async () => {
         await Data.fetchGraph(true);
         Graph.render(Data.cache.graph);
-        Tree.renderMental(Data.cache.graph);
+        await UnifiedTree.init();
         await this.select(this.current);
       }
     });
@@ -81,7 +77,7 @@ export const Content = {
       async () => {
         await Data.fetchGraph(true);
         Graph.render(Data.cache.graph);
-        Tree.renderMental(Data.cache.graph);
+        await UnifiedTree.init();
         await this.select(this.current);
       }
     );

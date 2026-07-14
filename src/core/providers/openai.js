@@ -43,7 +43,7 @@ function buildMessages(groups, system, tools) {
 
     const textParts = [], thinkingParts = [], toolCalls = [], toolActions = [];
     for (const a of g.actions) {
-      if (a.tool === 'thinking') { thinkingParts.push(String(a.output || '')); continue; }
+      if (a.tool === 'thinking' && a.output) { thinkingParts.push(String(a.output)); continue; }
       if (a.tool === 'speak')    { textParts.push(String(a.output || '')); continue; }
       toolCalls.push({ id: a.toolUseId, type: 'function', function: { name: a.tool, arguments: JSON.stringify(a.input || {}) } });
       toolActions.push(a);

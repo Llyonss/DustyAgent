@@ -6,25 +6,40 @@
 <title>Mental — 心智模型</title>
 <script>window.TERMINAL_AUTH='ZHVzdHk6ZHVzdHk0ZXZlcg=='</script>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="dusty-renderer/style.css">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.css" />
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10/lib/addon-fit.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/acorn@8/dist/acorn.js"></script>
 </head>
 <body>
 
 <div class="mobile-tabs" id="mobileTabs">
+  <div class="mobile-tab" data-tab="nav">🗂 会话</div>
   <div class="mobile-tab active" data-tab="chat">💬 对话</div>
   <div class="mobile-tab" data-tab="mental">🧠 心智</div>
-  <div class="mobile-tab" data-tab="terminal">⌨️ 终端</div>
 </div>
+
+<!-- 最左：会话导航（实例 + 项目 常驻总树）-->
+<aside id="navPanel">
+  <div class="nav-header">
+    <span class="nav-title">会话</span>
+    <button class="btn-icon btn-small" id="btnNavNewInstance" title="新建对话">💬+</button>
+    <button class="btn-icon btn-small" id="btnNavNewProject" title="新建分组">📁+</button>
+    <button class="btn-icon btn-small" id="btnNavNewAgent" title="新建 Agent">🤖+</button>
+    <button class="btn-icon btn-small" id="btnNavNewSystem" title="新建 System">⚙️+</button>
+  </div>
+  <div id="navTree" class="nav-tree"></div>
+</aside>
 
 <div id="chatPanel">
   <div class="chat-header">
     <div class="header-left">
-      <select id="instanceSelect"></select>
+      <button class="btn-icon" id="btnNavToggle" title="会话导航">☰</button>
+      <span id="curSessionLabel" class="cur-session" title="当前会话">—</span>
       <div class="preset-wrapper" id="presetWrapper">
         <div class="preset-trigger" id="presetTrigger" title="切换 LLM 预设">
           <span id="presetIcon">◇</span>
@@ -33,14 +48,13 @@
         </div>
         <div class="preset-dropdown hidden" id="presetDropdown"></div>
       </div>
-      <button class="btn-icon" id="btnNewInstance" title="新建实例">+</button>
-      <button class="btn-icon" id="btnDeleteInstance" title="删除实例">−</button>
     </div>
     <div class="header-right">
       <span id="usageIndicator" class="usage-indicator hidden" title="用量详情">
         <span class="usage-dot"></span>
         <span class="usage-text"></span>
       </span>
+      <button class="btn-text" id="btnConfig" title="对话配置">⚙️ <span class="btn-label">配置</span></button>
       <button class="btn-text" id="btnRestart" title="重启服务">🔄</button>
       <button class="btn-text" id="btnHistory" title="故事">📜 <span class="btn-label">故事</span></button>
       <button class="btn-text" id="btnLogs" title="infer 日志">📋 <span class="btn-label">日志</span></button>
@@ -54,6 +68,7 @@
   <div id="chatMessages" class="chat-messages"></div>
   <div class="chat-input">
     <textarea id="chatInput" placeholder="发消息..." rows="1"></textarea>
+    <button id="continueBtn" class="hidden">继续</button>
     <button id="sendBtn">发送</button>
     <button id="stopBtn" class="hidden">停止</button>
   </div>
@@ -72,15 +87,25 @@
   </div>
 </div>
 
+<!-- 项目文档编辑器（wiki / issue） -->
+<div id="docEditorOverlay" class="hidden">
+  <div id="docEditor">
+    <div class="de-header">
+      <span class="de-title" id="docEditorTitle">文档</span>
+      <span id="docEditorSaved" class="de-saved hidden">已保存</span>
+      <button class="btn" id="btnDocSave">保存</button>
+      <button class="btn-icon btn-small" id="btnDocClose" title="关闭">✕</button>
+    </div>
+    <textarea id="docEditorText" spellcheck="false"></textarea>
+  </div>
+</div>
+
 <div id="mentalPanel">
   <div class="mental-sidebar" id="mentalSidebar">
     <div class="sidebar-header">
-      <span class="sidebar-title">心智</span>
-      <button class="btn-icon btn-small" id="btnShowGraph" title="图谱">◎</button>
+      <span class="sidebar-title" id="sidebarTitle">目录</span>
     </div>
-    <div id="mentalTree"></div>
-    <div class="sidebar-self" id="btnSelf">◆ self</div>
-    <div id="storyTree"></div>
+    <div id="unifiedTree"></div>
   </div>
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
   <div class="mental-main" id="mentalMain">
@@ -102,38 +127,6 @@
         </div>
       </div>
       <div id="contentScroll">
-        <div id="modelSection" class="hidden">
-          <div class="model-header" id="modelToggle">
-            <span class="model-label">▸ Model</span>
-            <button class="btn-icon btn-small" id="btnEditModel" title="编辑模型配置">✏️</button>
-          </div>
-          <div id="modelBody" class="model-body collapsed"></div>
-          <div id="modelEditForm" class="model-edit-form hidden">
-            <label>Provider <input type="text" id="modelProvider" placeholder="anthropic / openai / claude-code"></label>
-            <label>Model <input type="text" id="modelModel" placeholder="模型名"></label>
-            <label>Base URL <input type="text" id="modelBaseUrl" placeholder="API 地址"></label>
-            <label>API Key <input type="text" id="modelApiKey" placeholder="密钥"></label>
-            <div class="model-edit-actions">
-              <button class="btn" id="btnModelCancel">取消</button>
-              <button class="btn btn-primary" id="btnModelSave">保存</button>
-            </div>
-          </div>
-        </div>
-        <div id="systemPromptSection" class="hidden">
-          <div class="system-prompt-header" id="systemPromptToggle">
-            <span class="system-prompt-label">▸ System Prompt</span>
-            <button class="btn-icon btn-small" id="btnEditSystem" title="编辑 System Prompt">✏️</button>
-          </div>
-          <div id="systemPromptBody" class="system-prompt-body collapsed"></div>
-          <div id="systemEnvInfo" class="system-env-info"></div>
-        </div>
-        <div id="toolsSection" class="hidden">
-          <div class="tools-header" id="toolsToggle">
-            <span class="tools-label">▸ Tools</span>
-            <button class="btn-icon btn-small" id="btnNewTool" title="新增工具">+</button>
-          </div>
-          <div id="toolsList" class="collapsed"></div>
-        </div>
         <div id="contentBody"><div class="empty">从目录或图谱选择心智</div></div>
         <div id="contentLinks"></div>
       </div>
@@ -159,6 +152,30 @@
         <div id="storyBody"></div>
         <div id="storyEvents"></div>
       </div>
+    </div>
+    <div id="fileView" class="hidden">
+      <div class="content-bar">
+        <span id="filePath">文件浏览</span>
+        <div class="content-actions">
+          <button class="btn-text btn-small" id="btnFileToggleView" title="切换代码/数据流视图">🔄 代码</button>
+          <button class="btn-icon btn-small" id="btnFileBack" title="返回图谱">◎</button>
+        </div>
+      </div>
+      <div id="fileScroll">
+        <div id="fileBody"><div class="empty">从左侧选择文件</div></div>
+      </div>
+    </div>
+    <div id="termPane" class="hidden">
+      <div class="content-bar">
+        <span>⌨️ 终端</span>
+        <div class="content-actions">
+          <button class="btn-icon btn-small" id="btnTermStop2" title="停止当前命令">⏹</button>
+          <button class="btn-icon btn-small" id="btnTermCopy2" title="复制选区">📋</button>
+          <button class="btn-icon btn-small" id="btnTermRestart2" title="重开终端">🔄</button>
+          <button class="btn-icon btn-small" id="btnTermBack" title="返回图谱">◎</button>
+        </div>
+      </div>
+      <div id="termPaneBody"></div>
     </div>
   </div>
 </div>
@@ -210,6 +227,66 @@
     <div class="logs-body">
       <div class="logs-list" id="logsListPanel"></div>
       <div class="logs-detail" id="logsDetailPanel"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 配置弹窗（system / model / tools）-->
+<div id="configModal" class="modal-overlay hidden">
+  <div class="modal-box config-modal">
+    <div class="modal-header">
+      <span id="configModalTitle">⚙️ 对话配置</span>
+      <button class="btn-icon btn-small" id="btnConfigClose">✕</button>
+    </div>
+    <div class="modal-body config-body" id="configModalBody">
+      <div id="configFileEditor" class="config-file-editor hidden">
+        <div class="config-file-editor-title" id="configFileEditorTitle"></div>
+        <textarea id="configFileEditorText" spellcheck="false"></textarea>
+        <div class="model-edit-actions">
+          <button class="btn" id="btnConfigFileCancel">取消</button>
+          <button class="btn btn-primary" id="btnConfigFileSave">保存</button>
+        </div>
+      </div>
+      <div id="configSections">
+      <div id="agentFilesSection" class="hidden">
+        <div class="system-prompt-header"><span class="system-prompt-label">Wiki</span><button class="btn-icon btn-small" id="btnEditAgentWiki">✏️</button></div>
+        <div id="agentWikiBody" class="system-prompt-body"></div>
+        <div class="system-prompt-header"><span class="system-prompt-label">Listen</span><button class="btn-icon btn-small" id="btnEditAgentListen">✏️</button></div>
+        <div id="agentListenBody" class="system-prompt-body"></div>
+      </div>
+      <div id="modelSection" class="hidden">
+        <div class="model-header" id="modelToggle">
+          <span class="model-label">▸ Model</span>
+          <button class="btn-icon btn-small" id="btnEditModel" title="编辑模型配置">✏️</button>
+        </div>
+        <div id="modelBody" class="model-body collapsed"></div>
+        <div id="modelEditForm" class="model-edit-form hidden">
+          <label>Provider <input type="text" id="modelProvider" placeholder="anthropic / openai"></label>
+          <label>Model <input type="text" id="modelModel" placeholder="模型名"></label>
+          <label>Base URL <input type="text" id="modelBaseUrl" placeholder="API 地址"></label>
+          <label>API Key <input type="text" id="modelApiKey" placeholder="密钥"></label>
+          <div class="model-edit-actions">
+            <button class="btn" id="btnModelCancel">取消</button>
+            <button class="btn btn-primary" id="btnModelSave">保存</button>
+          </div>
+        </div>
+      </div>
+      <div id="systemPromptSection" class="hidden">
+        <div class="system-prompt-header" id="systemPromptToggle">
+          <span class="system-prompt-label">▸ System Prompt</span>
+          <button class="btn-icon btn-small" id="btnEditSystem" title="编辑 System Prompt">✏️</button>
+        </div>
+        <div id="systemPromptBody" class="system-prompt-body collapsed"></div>
+        <div id="systemEnvInfo" class="system-env-info"></div>
+      </div>
+      <div id="toolsSection" class="hidden">
+        <div class="tools-header" id="toolsToggle">
+          <span class="tools-label">▸ Tools</span>
+          <button class="btn-icon btn-small" id="btnNewTool" title="新增工具">+</button>
+        </div>
+        <div id="toolsList" class="collapsed"></div>
+      </div>
+      </div>
     </div>
   </div>
 </div>

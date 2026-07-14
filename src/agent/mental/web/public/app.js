@@ -5,14 +5,17 @@ import { Data } from './data.js';
 import { Instance } from './instance.js';
 import { View } from './view.js';
 import { Graph } from './graph/index.js';
-import { Tree } from './graph/tree.js';
 import { Content } from './content/index.js';
+import { UnifiedTree } from './unified-tree.js';
 import { Chat } from './chat/index.js';
 import { Preset } from './preset.js';
 import { Screenshot } from './screenshot.js';
 import { Usage } from './usage.js';
 import { Logs } from './logs.js';
 import { Terminal } from './terminal.js';
+import { Files } from './files/index.js';
+import { Self } from './content/self.js';
+import { Nav } from './nav.js';
 
 // 全局工具函数
 window.esc = function(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
@@ -54,30 +57,30 @@ window.mdTo = function(el, s) {
   mermaid.run({ nodes: el.querySelectorAll('.mermaid:not([data-processed])') });
 };
 
-// —— 移动端键盘适配：visualViewport 动态高度 ——
-// 键盘弹出时 visualViewport 缩小，body 高度同步缩小 → 输入框紧贴键盘
+// —— 移动端键盘适配：仅处理滚动偏移，高度由 CSS 100dvh 控制 ——
 if (window.visualViewport) {
   const adaptViewport = () => {
-    document.body.style.height = window.visualViewport.height + 'px';
-    // 部分浏览器键盘弹出时会滚动页面，强制归位
     if (window.visualViewport.offsetTop > 0) {
       window.scrollTo(0, 0);
     }
   };
   window.visualViewport.addEventListener('resize', adaptViewport);
   window.visualViewport.addEventListener('scroll', adaptViewport);
-  adaptViewport();
 }
 
 const App = {
   async init() {
     bindEvents();
 
-    await Instance.init();
+    Nav.bind();
+    await Nav.init();
     await Preset.init();
 
     // 终端初始化
-    Terminal.init(document.getElementById('terminalContainer'));
+    Terminal.init(
+      document.getElementById('terminalContainer'),
+      document.getElementById('termPaneBody')
+    );
     window._terminalOpen = () => Terminal.open();
 
     // visualViewport 变化时 refit 终端
@@ -89,25 +92,34 @@ const App = {
 
     const graphData = await Data.fetchGraph();
     Graph.render(graphData);
-    Tree.renderMental(graphData);
+    await UnifiedTree.init();
+
+    // 桥接：文件打开（供统一树调用）
+    window._utOpenFile = (filePath, fileName) => {
+      Files.openFile(filePath, fileName);
+      View.showFiles();
+    };
+    // 桥接：终端打开
+    window._terminalOpen = () => Terminal.open();
+    // 桥接：移动端切到终端 tab（由 View 统一负责移动端显隐）
+    window._showTerminalTab = () => {
+      if (window.matchMedia('(max-width:768px)').matches) View.switchTab('terminal');
+    };
 
     Screenshot.init();
     Usage.init();
     Logs.init();
+
     Chat.startPoll();
   }
 };
 
 function bindEvents() {
-  document.getElementById('instanceSelect').addEventListener('change', () => {
-    Instance.switch(document.getElementById('instanceSelect').value);
-  });
-  document.getElementById('btnNewInstance').addEventListener('click', () => Instance.create());
-  document.getElementById('btnDeleteInstance').addEventListener('click', () => Instance.remove());
   document.getElementById('btnRestart').addEventListener('click', () => Instance.restart());
 
   document.getElementById('sendBtn').addEventListener('click', () => Chat.send());
   document.getElementById('stopBtn').addEventListener('click', () => Chat.abort());
+  document.getElementById('continueBtn').addEventListener('click', () => Chat.continueLoop());
   document.getElementById('btnHistory').addEventListener('click', () => Chat.toggleHistory());
   const chatInput = document.getElementById('chatInput');
   chatInput.addEventListener('keydown', e => {
@@ -124,13 +136,20 @@ function bindEvents() {
   document.getElementById('btnToggleSidebar').addEventListener('click', () => View.toggleSidebar());
   document.getElementById('sidebarOverlay').addEventListener('click', () => View.closeSidebar());
 
-  document.getElementById('btnShowGraph').addEventListener('click', () => Content.showGraph());
+  document.getElementById('btnFileBack').addEventListener('click', () => View.showGraph());
+  document.getElementById('btnFileToggleView').addEventListener('click', () => Files.toggleView());
   document.getElementById('btnEditContent').addEventListener('click', () => Content.editContent());
   document.getElementById('btnEditLinks').addEventListener('click', () => Content.editLinks());
   document.getElementById('btnBackToGraph').addEventListener('click', () => Content.showGraph());
   document.getElementById('btnMentalStories').addEventListener('click', () => Content.showRelatedStories());
 
-  document.getElementById('btnSelf').addEventListener('click', () => Content.select('self'));
+  document.getElementById('btnConfig').addEventListener('click', () => Self.view());
+  document.getElementById('btnEditAgentWiki').addEventListener('click', () => Self.editAgentFile('wiki.md'));
+  document.getElementById('btnEditAgentListen').addEventListener('click', () => Self.editAgentFile('listen.js'));
+  document.getElementById('btnConfigFileSave').addEventListener('click', () => Self.saveFileEditor());
+  document.getElementById('btnConfigFileCancel').addEventListener('click', () => Self.closeFileEditor());
+  document.getElementById('btnConfigClose').addEventListener('click', () => { Self.closeFileEditor(); document.getElementById('configModal').classList.add('hidden'); });
+  document.getElementById('configModal').addEventListener('click', (e) => { if (e.target === e.currentTarget) { Self.closeFileEditor(); document.getElementById('configModal').classList.add('hidden'); } });
   document.getElementById('modelToggle').addEventListener('click', () => Content.toggleModel());
   document.getElementById('btnEditModel').addEventListener('click', e => { e.stopPropagation(); Content.editModel(); });
   document.getElementById('btnModelSave').addEventListener('click', () => Content.saveModel());
@@ -182,6 +201,13 @@ function bindEvents() {
   document.getElementById('btnTermStop')?.addEventListener('click', () => Terminal.stop());
   document.getElementById('btnTermCopy')?.addEventListener('click', () => Terminal.copy());
   document.getElementById('btnTermRestart')?.addEventListener('click', () => Terminal.restart());
+  document.getElementById('btnTermStop2')?.addEventListener('click', () => Terminal.stop());
+  document.getElementById('btnTermCopy2')?.addEventListener('click', () => Terminal.copy());
+  document.getElementById('btnTermRestart2')?.addEventListener('click', () => Terminal.restart());
+  document.getElementById('btnTermBack')?.addEventListener('click', () => {
+    document.getElementById('termPane').classList.add('hidden');
+    document.getElementById('graphView').classList.remove('hidden');
+  });
 }
 
 App.init();

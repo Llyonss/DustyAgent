@@ -48,7 +48,7 @@ function buildMessages(groups, system, tools) {
 
     const blocks = [], toolActions = [];
     for (const a of g.actions) {
-      if (a.tool === 'thinking') { blocks.push({ type: 'thinking', thinking: String(a.output || '') }); continue; }
+      if (a.tool === 'thinking' && a.output) { blocks.push({ type: 'thinking', thinking: String(a.output) }); continue; }
       if (a.tool === 'speak')    { blocks.push({ type: 'text', text: String(a.output || '') }); continue; }
       blocks.push({ type: 'tool_use', id: a.toolUseId, name: a.tool, input: a.input || {} });
       toolActions.push(a);
@@ -97,20 +97,21 @@ function* match(e, ctx) {
   }
 
   // content_block_start → delta(start:true)
+  // thinking 延迟 start 到首次 thinking_delta，避免 redacted thinking 产生空事件
   if (e.type === 'content_block_start') {
     ctx.block = e.content_block;
     ctx.id = ctx.block.id || `${ctx.block.type}_${e.index}`;
     ctx.content = '';
     ctx.json = '';
-    const tool = ctx.block.type === 'text' ? 'speak'
-               : ctx.block.type === 'thinking' ? 'thinking'
-               : ctx.block.name;
+    if (ctx.block.type === 'thinking') return; // 延迟到 thinking_delta
+    const tool = ctx.block.type === 'text' ? 'speak' : ctx.block.name;
     yield { type: 'delta', start: true, id: ctx.id, tool };
     return;
   }
 
-  // thinking 增量
+  // thinking 增量（首次 emit start）
   if (e.type === 'content_block_delta' && e.delta.type === 'thinking_delta') {
+    if (!ctx.content) yield { type: 'delta', start: true, id: ctx.id, tool: 'thinking' };
     ctx.content += e.delta.thinking;
     yield { type: 'delta', id: ctx.id, tool: 'thinking', content: e.delta.thinking };
     return;
@@ -143,9 +144,9 @@ function* match(e, ctx) {
     return;
   }
 
-  // thinking 完成 → delta(done:true, output)
+  // thinking 完成 → delta(done:true, output)（跳过空内容：redacted thinking 无 thinking_delta）
   if (e.type === 'content_block_stop' && ctx.block?.type === 'thinking') {
-    yield { type: 'delta', done: true, id: ctx.id, tool: 'thinking', output: ctx.content };
+    if (ctx.content) yield { type: 'delta', done: true, id: ctx.id, tool: 'thinking', output: ctx.content };
     ctx.block = null;
     return;
   }

@@ -11,10 +11,12 @@ export const View = {
     document.getElementById('graphView').classList.remove('hidden');
     document.getElementById('contentView').classList.add('hidden');
     document.getElementById('storyView').classList.add('hidden');
-    document.getElementById('systemPromptSection').classList.add('hidden');
-    document.getElementById('toolsSection').classList.add('hidden');
-    document.getElementById('editArea').classList.add('hidden');
+    document.getElementById('fileView').classList.add('hidden');
+    document.getElementById('termPane').classList.add('hidden');
     document.getElementById('contentScroll').style.display = '';
+    // 恢复侧边栏标题
+    const title = document.getElementById('sidebarTitle');
+    if (title) title.textContent = '目录';
     this.updateMobileTitle('心智图谱');
   },
 
@@ -23,6 +25,8 @@ export const View = {
     document.getElementById('graphView').classList.add('hidden');
     document.getElementById('contentView').classList.remove('hidden');
     document.getElementById('storyView').classList.add('hidden');
+    document.getElementById('fileView').classList.add('hidden');
+    document.getElementById('termPane').classList.add('hidden');
   },
 
   showStory() {
@@ -30,12 +34,33 @@ export const View = {
     document.getElementById('graphView').classList.add('hidden');
     document.getElementById('contentView').classList.add('hidden');
     document.getElementById('storyView').classList.remove('hidden');
+    document.getElementById('fileView').classList.add('hidden');
+    document.getElementById('termPane').classList.add('hidden');
+  },
+
+  showFiles() {
+    this.current = 'files';
+    document.getElementById('graphView').classList.add('hidden');
+    document.getElementById('contentView').classList.add('hidden');
+    document.getElementById('storyView').classList.add('hidden');
+    document.getElementById('fileView').classList.remove('hidden');
+    document.getElementById('termPane').classList.add('hidden');
+  },
+
+  showTerminal() {
+    this.current = 'terminal';
+    document.getElementById('graphView').classList.add('hidden');
+    document.getElementById('contentView').classList.add('hidden');
+    document.getElementById('storyView').classList.add('hidden');
+    document.getElementById('fileView').classList.add('hidden');
+    document.getElementById('termPane').classList.remove('hidden');
   },
 
   // —— 移动端 ——
   switchTab(tab) {
     const chatPanel = document.getElementById('chatPanel');
     const mentalPanel = document.getElementById('mentalPanel');
+    const navPanel = document.getElementById('navPanel');
     const terminalPanel = document.getElementById('terminalPanel');
     document.querySelectorAll('.mobile-tab').forEach(t =>
       t.classList.toggle('active', t.dataset.tab === tab)
@@ -44,9 +69,13 @@ export const View = {
     chatPanel.classList.remove('mobile-hidden');
     chatPanel.classList.remove('mobile-term');
     mentalPanel.classList.remove('mobile-show');
+    navPanel?.classList.remove('mobile-show');
     terminalPanel?.classList.remove('terminal-open');
     // 显示目标
-    if (tab === 'chat') {
+    if (tab === 'nav') {
+      chatPanel.classList.add('mobile-hidden');
+      navPanel?.classList.add('mobile-show');
+    } else if (tab === 'chat') {
       // chatPanel 默认可见
     } else if (tab === 'mental') {
       chatPanel.classList.add('mobile-hidden');

@@ -53,7 +53,7 @@ function installMockInfer() {
   // Clear cached modules that depend on infer
   delete require.cache[require.resolve('../core/loop')];
   // Clear the web module cache so it picks up the mocked loop → mocked infer
-  const webModulePath = require.resolve('../web/index');
+  const webModulePath = require.resolve('../agent/web/index');
   delete require.cache[webModulePath];
   // Also clear agent modules that the web module imports
   try { delete require.cache[require.resolve('../agent/default')]; } catch {}
@@ -63,7 +63,7 @@ function installMockInfer() {
 function cleanupMockInfer() {
   delete require.cache[inferModulePath];
   delete require.cache[require.resolve('../core/loop')];
-  try { delete require.cache[require.resolve('../web/index')]; } catch {}
+  try { delete require.cache[require.resolve('../agent/web/index')]; } catch {}
   try { delete require.cache[require.resolve('../agent/default')]; } catch {}
   try { delete require.cache[require.resolve('../agent/doc')]; } catch {}
 }
@@ -119,7 +119,7 @@ describe('web abort', () => {
     installMockInfer();
 
     // Require web module (which will use mocked infer via mocked loop)
-    const web = require('../web/index');
+    const web = require('../agent/web/index');
     app = web.app;
     loops = web.loops;
 

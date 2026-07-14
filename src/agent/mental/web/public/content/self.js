@@ -1,36 +1,87 @@
 // === Self 页面 ===
-// 职责：管理实例的system prompt和tools
+// 管理实例/项目对话的 system prompt、model、tools
+// 通过 Source.current 统一适配旧实例和项目对话
 
 import { Data } from '../data.js';
-import { Editor } from './editor.js';
-import { Instance } from '../instance.js';
+import { Source } from '../source.js';
+
+function src() { return Source.get(); }
+
+// 统一 fetch/self/save 适配器（分组对话即普通实例，统一走实例 API）
+let agentName = null;
+const SelfAPI = {
+  fetchSelf: () => agentName ? Data.fetchAgentConfig(agentName) : Data.fetchSelf(src().id),
+  fetchModel: () => agentName ? Data.fetchAgentModel(agentName) : Data.fetchModel(src().id),
+  fetchModelPresets: () => agentName ? Data.fetchAgentModelPresets(agentName) : Data.fetchModelPresets(src().id),
+  saveModel: (config, preset) => agentName ? Data.saveAgentModel(agentName, config, preset) : Data.saveModel(src().id, config, preset),
+  fetchTools: () => agentName ? Data.fetchAgentTools(agentName) : Data.fetchTools(src().id),
+  saveSelf: (suffix, content) => agentName ? Data.saveAgentFile(agentName, suffix, content) : Data.saveSelf(src().id, suffix, content),
+};
 
 export const Self = {
   modelData: null,
 
   async view() {
-    document.getElementById('contentName').textContent = 'self';
-    document.getElementById('contentBody').innerHTML = '';
-    document.getElementById('contentLinks').innerHTML = '';
+    agentName = null;
+    return this._view();
+  },
 
-    const data = await Data.fetchSelf(Instance.current);
+  async viewAgent(name) {
+    agentName = name;
+    return this._view();
+  },
+
+  async _view() {
+    const data = await SelfAPI.fetchSelf();
+    document.getElementById('configModalTitle').textContent = agentName ? `🤖 ${agentName} 配置` : '⚙️ 对话配置';
     document.getElementById('modelSection').classList.remove('hidden');
     document.getElementById('systemPromptSection').classList.remove('hidden');
     document.getElementById('systemPromptBody').textContent = data.systemMd || '(空)';
     document.getElementById('systemEnvInfo').textContent = data.env || '';
+    const agentSection = document.getElementById('agentFilesSection');
+    if (agentName) {
+      agentSection.classList.remove('hidden');
+      document.getElementById('agentWikiBody').textContent = data.wiki || '(空)';
+      document.getElementById('agentListenBody').textContent = data.listen || '(空)';
+    } else agentSection.classList.add('hidden');
+    document.getElementById('configModal').classList.remove('hidden');
     this.loadModel();
     this.loadTools();
   },
 
-  // —— Model ——
+  _fileSave: null,
+  openFileEditor({ value, label, onSave }) {
+    this._fileSave = onSave;
+    document.getElementById('configSections').classList.add('hidden');
+    document.getElementById('configFileEditor').classList.remove('hidden');
+    document.getElementById('configFileEditorTitle').textContent = label;
+    const ta = document.getElementById('configFileEditorText'); ta.value = value || ''; ta.focus();
+  },
+  async saveFileEditor() {
+    if (this._fileSave) await this._fileSave(document.getElementById('configFileEditorText').value);
+    this.closeFileEditor();
+    if (agentName) await this.viewAgent(agentName); else await this.view();
+  },
+  closeFileEditor() {
+    this._fileSave = null;
+    document.getElementById('configFileEditor').classList.add('hidden');
+    document.getElementById('configSections').classList.remove('hidden');
+  },
+  editAgentFile(suffix) {
+    if (!agentName) return;
+    SelfAPI.fetchSelf().then(data => {
+      const key = suffix === 'wiki.md' ? 'wiki' : 'listen';
+      this.openFileEditor({ value: data[key], label: `编辑 ${agentName} / ${suffix}`, onSave: value => SelfAPI.saveSelf(suffix, value) });
+    });
+  },
 
+  // —— Model ——
   async loadModel() {
-    const config = await Data.fetchModel(Instance.current);
-    const presetsData = await Data.fetchModelPresets(Instance.current);
+    const config = await SelfAPI.fetchModel();
+    const presetsData = await SelfAPI.fetchModelPresets();
     this.modelData = config;
     const body = document.getElementById('modelBody');
 
-    // Build preset dropdown HTML
     let presetHtml = '';
     const presets = presetsData.presets || {};
     const current = presetsData.current;
@@ -42,7 +93,7 @@ export const Self = {
         const sel = name === current ? ' selected' : '';
         const label = (p.provider || '') + ' · ' + (p.model || '').replace('anthropic/', '');
         presetHtml += `<div class="model-preset-item${sel}" data-preset="${window.esc(name)}" onclick="window._selfSelectPreset('${window.esc(name)}')">` +
-          `<span class="preset-dot">${sel ? '●' : '○'}</span>` +
+          `<span class="preset-dot">${sel ? '◆' : '◇'}</span>` +
           `<span class="preset-name">${window.esc(name)}</span>` +
           `<span class="preset-label">${window.esc(label)}</span>` +
           `</div>`;
@@ -68,7 +119,7 @@ export const Self = {
   },
 
   async selectPreset(name) {
-    await Data.saveModel(Instance.current, null, name);
+    await SelfAPI.saveModel(null, name);
     this.loadModel();
   },
 
@@ -86,7 +137,6 @@ export const Self = {
     document.getElementById('modelBaseUrl').value = config.baseUrl || '';
     document.getElementById('modelApiKey').value = config.apiKey || '';
     document.getElementById('modelEditForm').classList.remove('hidden');
-    // Expand body if collapsed
     const body = document.getElementById('modelBody');
     const label = document.querySelector('.model-label');
     if (body.classList.contains('collapsed')) {
@@ -105,7 +155,7 @@ export const Self = {
     if (model) config.model = model;
     if (baseUrl) config.baseUrl = baseUrl;
     if (apiKey) config.apiKey = apiKey;
-    await Data.saveModel(Instance.current, config);
+    await SelfAPI.saveModel(config);
     document.getElementById('modelEditForm').classList.add('hidden');
     await this.loadModel();
   },
@@ -122,24 +172,20 @@ export const Self = {
   },
 
   editSystem() {
-    Data.fetchSelf(Instance.current).then(data => {
-      Editor.enter({
-        initialValue: data.systemMd || '',
+    SelfAPI.fetchSelf().then(data => {
+      this.openFileEditor({
+        value: data.systemMd || '',
         label: '编辑 System Prompt',
-        onSave: async (value) => {
-          await Data.saveSelf(Instance.current, 'system.md', value);
-        },
-        onAfterSave: async () => { await Self.view(); }
+        onSave: value => SelfAPI.saveSelf('system.md', value),
       });
     });
   },
 
   // —— Tools ——
-
   toolsData: null,
 
   async loadTools() {
-    const data = await Data.fetchTools(Instance.current);
+    const data = await SelfAPI.fetchTools();
     this.toolsData = data;
     const section = document.getElementById('toolsSection');
     const list = document.getElementById('toolsList');
@@ -176,7 +222,7 @@ export const Self = {
     const disabled = new Set(config.disabled || []);
     if (disabled.has(name)) disabled.delete(name); else disabled.add(name);
     config.disabled = [...disabled];
-    await Data.saveSelf(Instance.current, 'tools.json', JSON.stringify(config, null, 2));
+    await SelfAPI.saveSelf('tools.json', JSON.stringify(config, null, 2));
     this.loadTools();
   },
 
@@ -185,8 +231,8 @@ export const Self = {
     const override = this.toolsData.config.overrides?.[name]?.description;
     const builtin = this.toolsData.builtins.find(t => t.name === name);
     const initialValue = override ?? builtin?.description ?? '';
-    Editor.enter({
-      initialValue,
+    this.openFileEditor({
+      value: initialValue,
       label: `编辑 ${name} 描述`,
       onSave: async (value) => {
         const config = this.toolsData.config || { disabled: [], overrides: {} };
@@ -196,22 +242,18 @@ export const Self = {
         } else {
           config.overrides[name] = { description: value };
         }
-        await Data.saveSelf(Instance.current, 'tools.json', JSON.stringify(config, null, 2));
-      },
-      onAfterSave: async () => { await Self.loadTools(); }
+        await SelfAPI.saveSelf('tools.json', JSON.stringify(config, null, 2));
+      }
     });
   },
 
   editToolCode(file) {
     if (!this.toolsData) return;
     const tool = this.toolsData.custom.find(t => t.file === file);
-    Editor.enter({
-      initialValue: tool?.code || '',
+    this.openFileEditor({
+      value: tool?.code || '',
       label: `编辑 ${file}`,
-      onSave: async (value) => {
-        await Data.saveSelf(Instance.current, `tools/${file}`, value);
-      },
-      onAfterSave: async () => { await Self.loadTools(); }
+      onSave: value => SelfAPI.saveSelf(`tools/${file}`, value),
     });
   },
 
@@ -223,17 +265,17 @@ export const Self = {
   },
 
   async newTool() {
-    const name = prompt('工具名称（英文）：');
+    const name = prompt('工具名称（英文）:');
     if (!name || !name.match(/^[a-zA-Z_]\w*$/)) return;
     const template = `module.exports = {\n  name: '${name}',\n  description: '描述这个工具的功能',\n  input_schema: {\n    type: 'object',\n    properties: {\n      input: { type: 'string', description: '输入参数' },\n    },\n  },\n  execute: async (input, ctrl, eventsDir) => {\n    return 'result';\n  },\n};\n`;
-    await Data.saveSelf(Instance.current, `tools/${name}.js`, template);
+    await SelfAPI.saveSelf(`tools/${name}.js`, template);
     this.loadTools();
   }
 };
 
 function toolItemHtml(name, desc, off, isCustom, idx, file) {
   const cls = off ? 'tool-item disabled' : 'tool-item';
-  const tog = off ? '✗' : '✓';
+  const tog = off ? '✕' : '✓';
   const customClass = isCustom ? ' custom' : '';
   const editAction = isCustom
     ? `onclick="event.stopPropagation();window._selfEditCode('${window.esc(file)}')"`

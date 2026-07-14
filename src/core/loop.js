@@ -1,17 +1,34 @@
 const path = require('path');
 const fs = require('fs');
-const { readEvents, writeEvent } = require('./event');
+const { readEvents, writeEvent, fixOrphans } = require('./event');
 const { infer } = require('./infer');
 const { run } = require('./action');
+
+const RETRYABLE = new Set([429, 500, 502, 503, 504, 529]);
+const MAX_RETRIES = 5;
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+/** 从错误消息中提取 HTTP status，判断是否可重试 */
+function isRetryable(errors) {
+  return errors.some(msg => {
+    const m = String(msg).match(/\[(\d+)/);
+    return m && RETRYABLE.has(Number(m[1]));
+  });
+}
+
 async function* loop({ instanceDir, signal, hooks = {} }) {
   const eventsDir = path.join(instanceDir, 'events');
+
+  // 启动时修复孤儿事件
+  const orphans = fixOrphans(eventsDir);
+  if (orphans) console.log(`[loop] Fixed ${orphans} orphan event(s) in ${instanceDir}`);
+
   let running = true;
   let waitMs = 0;
+  let consecutiveErrors = 0;
 
   const ctrl = {
     stop: () => { running = false; },
@@ -19,7 +36,6 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
     signal,
   };
 
-  // restart：写一条"模拟 stop 工具调用、返回不能停的原因"的事件，重新点燃循环
   const restart = (reason) => {
     writeEvent(eventsDir, { type: 'action', turn: Date.now(), tool: 'stop', toolUseId: 'stop_' + Date.now(), input: {}, output: String(reason ?? '') });
     running = true;
@@ -39,7 +55,8 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
     const tools = hooks.tools ? hooks.tools() : [];
 
     let model = {};
-    try { model = JSON.parse(fs.readFileSync(path.join(instanceDir, 'model.json'), 'utf-8')); } catch {}
+    if (hooks.model) model = await hooks.model();
+    else try { model = JSON.parse(fs.readFileSync(path.join(instanceDir, 'model.json'), 'utf-8')); } catch {}
 
     const start = Date.now();
     const { response, errors, request, blocks, outcome, startedAt, endedAt } = await run(
@@ -60,12 +77,22 @@ async function* loop({ instanceDir, signal, hooks = {} }) {
     if (hooks.output) hooks.output(turn);
     yield turn;
 
+    // ═══ 瞬时错误重试 ═══
+    if (outcome === 'error' && isRetryable(errors) && consecutiveErrors < MAX_RETRIES) {
+      consecutiveErrors++;
+      const delay = Math.min(1000 * Math.pow(2, consecutiveErrors), 60000);
+      console.error(`[loop] Retryable error, retrying in ${delay}ms (${consecutiveErrors}/${MAX_RETRIES})`);
+      await sleep(delay);
+      running = true;
+      continue;
+    }
+    if (outcome !== 'error') consecutiveErrors = 0;
+
     if (waitMs > 0) {
       await sleep(waitMs);
       waitMs = 0;
     }
 
-    // 本轮跑完已决定停 → 通知 hooks.stop，它可调 restart(reason) 续命
     if (!running && hooks.stop) await hooks.stop(restart);
   }
 }
